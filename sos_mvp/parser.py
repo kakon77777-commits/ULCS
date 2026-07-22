@@ -9,13 +9,25 @@ from .model import InputRef, Node, Program
 _HEADER_RE = re.compile(
     r"(?P<role>source|extract|transform|store|run)\s+"
     r"(?P<node>[A-Za-z_][A-Za-z0-9_-]*)\s*=\s*"
-    r"(?P<lang>ps|powershell|py|python|regex|sql)\s*$",
+    r"(?P<lang>[A-Za-z_][A-Za-z0-9_-]*)\s*$",
     re.IGNORECASE,
 )
 _FROM_RE = re.compile(
-    r"^\s*from\s+(?P<node>[A-Za-z_][A-Za-z0-9_-]*)(?:\.(?P<field>[A-Za-z_][A-Za-z0-9_-]*))?\s*",
+    r"^[ \t\r\n]*from[ \t]+(?P<refs>[^\n#]+)",
     re.IGNORECASE,
 )
+_REF_RE = re.compile(
+    r"^(?P<node>[A-Za-z_][A-Za-z0-9_-]*)"
+    r"(?:\.(?P<field>[A-Za-z_][A-Za-z0-9_-]*))?"
+    r"(?:[ \t]+as[ \t]+(?P<alias>[A-Za-z_][A-Za-z0-9_-]*))?$",
+    re.IGNORECASE,
+)
+
+_LANGUAGE_ALIASES = {
+    "powershell": "ps",
+    "python": "py",
+    "sqlite": "sql",
+}
 
 
 class ParseError(ValueError):
@@ -75,6 +87,9 @@ def _scan_block(text: str, open_pos: int) -> tuple[str, int]:
             pos += 1
             continue
 
+        if ch == "\\":
+            pos += 2
+            continue
         if ch in ("'", '"'):
             if text.startswith(ch * 3, pos):
                 quote = ch
@@ -85,7 +100,6 @@ def _scan_block(text: str, open_pos: int) -> tuple[str, int]:
                 triple = False
                 pos += 1
             continue
-
         if ch == "{":
             depth += 1
         elif ch == "}":
@@ -95,6 +109,27 @@ def _scan_block(text: str, open_pos: int) -> tuple[str, int]:
         pos += 1
 
     raise ParseError("語言區塊的大括號沒有閉合。")
+
+
+def _parse_inputs(text: str, after: int) -> tuple[list[InputRef], int]:
+    match = _FROM_RE.match(text[after:])
+    if not match:
+        return [], after
+
+    refs: list[InputRef] = []
+    for raw in match.group("refs").split(","):
+        item = raw.strip()
+        ref_match = _REF_RE.match(item)
+        if not ref_match:
+            raise ParseError(f"無法解析輸入引用：{item!r}")
+        refs.append(
+            InputRef(
+                node_id=ref_match.group("node"),
+                field=ref_match.group("field"),
+                alias=ref_match.group("alias"),
+            )
+        )
+    return refs, after + match.end()
 
 
 def parse_text(text: str) -> Program:
@@ -108,29 +143,20 @@ def parse_text(text: str) -> Program:
         open_pos, header = _find_open_brace(text, pos)
         match = _HEADER_RE.match(header)
         if not match:
-            excerpt = header[:100]
-            raise ParseError(f"無法解析區塊標頭：{excerpt!r}")
+            raise ParseError(f"無法解析區塊標頭：{header[:100]!r}")
 
         code, after = _scan_block(text, open_pos)
-        from_match = _FROM_RE.match(text[after:])
-        input_ref = None
-        if from_match:
-            input_ref = InputRef(from_match.group("node"), from_match.group("field"))
-            after += from_match.end()
-
-        lang = match.group("lang").lower()
-        if lang == "powershell":
-            lang = "ps"
-        elif lang == "python":
-            lang = "py"
+        inputs, after = _parse_inputs(text, after)
+        language = match.group("lang").lower()
+        language = _LANGUAGE_ALIASES.get(language, language)
 
         nodes.append(
             Node(
                 node_id=match.group("node"),
                 role=match.group("role").lower(),
-                language=lang,
+                language=language,
                 code=code.strip(),
-                input_ref=input_ref,
+                inputs=inputs,
             )
         )
         pos = after
@@ -143,8 +169,9 @@ def parse_text(text: str) -> Program:
         if node.node_id in ids:
             raise ParseError(f"節點名稱重複：{node.node_id}")
         ids.add(node.node_id)
-        if node.input_ref and node.input_ref.node_id not in ids:
-            raise ParseError(f"節點 {node.node_id} 引用了尚未定義的節點 {node.input_ref.node_id}")
+        keys = [ref.key for ref in node.inputs]
+        if len(keys) != len(set(keys)):
+            raise ParseError(f"節點 {node.node_id} 的多輸入鍵重複；請使用 as 別名。")
 
     return Program(nodes)
 

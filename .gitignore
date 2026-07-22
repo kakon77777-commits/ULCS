@@ -2,7 +2,7 @@ __pycache__/
 *.py[cod]
 *.db
 .venv/
-venv/
-.env
-output/*.db
-.DS_Store
+dist/
+build/
+*.egg-info/
+output/

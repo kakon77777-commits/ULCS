@@ -1,3 +1,3 @@
-"""SOS Polyglot Computational Terminal MVP."""
+"""Universal Language Composition Substrate (ULCS) reference MVP."""
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

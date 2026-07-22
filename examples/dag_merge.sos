@@ -1,0 +1,16 @@
+# Two independent branches merge into one Python node.
+source errors = py{
+result = {"ERROR": 3, "FATAL": 1}
+}
+
+source metadata = py{
+result = {"environment": "demo", "version": "0.2"}
+}
+
+transform report = py{
+result = {
+    "summary": input["counts"],
+    "metadata": input["meta"],
+    "total": sum(input["counts"].values()),
+}
+} from errors as counts, metadata as meta
