@@ -1,0 +1,8 @@
+[project]
+name = "sos-polyglot-terminal-mvp"
+version = "0.1.0"
+description = "Executable MVP for SOS/ULCS polyglot computational terminal"
+requires-python = ">=3.11"
+
+[project.scripts]
+sos-mvp = "sos_mvp.cli:main"
