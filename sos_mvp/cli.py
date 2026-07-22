@@ -20,6 +20,15 @@ from .parser import ParseError, parse_file
 from .planner import enrich_and_validate, plan_lines
 
 
+def _configure_stdio() -> None:
+    """Use deterministic UTF-8 diagnostics on Windows and redirected shells."""
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            reconfigure(encoding="utf-8", errors="replace")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ulcs",
@@ -37,7 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--list-languages", action="store_true", help="列出已註冊語言適配器")
     parser.add_argument("--list-capabilities", action="store_true", help="列出核心已知能力名稱")
     parser.add_argument("--plugin", action="append", default=[], metavar="MODULE", help="載入 Runtime 外掛模組，可重複")
-    parser.add_argument("--policy", help="JSON 能力政策檔；指定後預設採 enforce 模式")
+    parser.add_argument("--policy", help="JSON 能力政策檔；未寫 mode 時預設 enforce")
     parser.add_argument("--allow", action="append", default=[], metavar="PATTERN", help="允許能力模式，可重複，如 filesystem.*")
     parser.add_argument("--deny", action="append", default=[], metavar="PATTERN", help="拒絕能力模式，可重複，如 network.*")
     parser.add_argument(
@@ -49,6 +58,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _configure_stdio()
     args = build_parser().parse_args(argv)
 
     try:
