@@ -1,0 +1,32 @@
+# SOS Polyglot Computational Terminal MVP demo
+
+source logs = ps{
+    Get-ChildItem ./logs -Filter *.log
+}
+
+extract errors = regex{
+    ERROR|FATAL
+} from logs
+
+transform report = py{
+from collections import Counter
+
+levels = Counter(item["match"] for item in input)
+result = {
+    "payload": {
+        "total_matches": len(input),
+        "levels": dict(levels),
+        "sources": sorted({item["source"] for item in input}),
+    }
+}
+} from errors
+
+store saved = sql{
+CREATE TABLE IF NOT EXISTS reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    payload TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+INSERT INTO reports(payload) VALUES (:payload);
+SELECT id, payload, created_at FROM reports ORDER BY id DESC LIMIT 1;
+} from report
