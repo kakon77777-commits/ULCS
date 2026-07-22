@@ -25,6 +25,10 @@ source left = py{result = 5}
             [node.node_id for node in program.topological_nodes()],
             ["right", "left", "merged"],
         )
+        self.assertEqual(
+            [[node.node_id for node in layer] for layer in program.execution_layers()],
+            [["right", "left"], ["merged"]],
+        )
         self.assertEqual(program.node_map()["merged"].input_type, "InputMap")
 
     def test_multiple_inputs_with_aliases_execute(self):
@@ -54,7 +58,7 @@ transform b = py{result = input} from a
         with self.assertRaises(GraphError):
             enrich_and_validate(program)
 
-    def test_ir_contains_edges_sinks_and_capabilities(self):
+    def test_ir_contains_edges_sinks_capabilities_and_layers(self):
         program = enrich_and_validate(
             parse_text(
                 """
@@ -64,10 +68,11 @@ transform b = py{result = input + 1} from a
             )
         )
         ir = program.to_dict()
-        self.assertEqual(ir["version"], "0.3")
+        self.assertEqual(ir["version"], "0.4")
         self.assertEqual(ir["edges"][0]["from"], "a")
         self.assertEqual(ir["sinks"], ["b"])
         self.assertEqual(ir["nodes"][0]["capabilities"], ["python.execute"])
+        self.assertEqual(ir["execution_layers"], [["a"], ["b"]])
 
 
 if __name__ == "__main__":

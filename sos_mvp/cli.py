@@ -12,12 +12,13 @@ from .capabilities import (
     CapabilityPolicy,
     decision_line,
 )
-from .engine import ExecutionEvent, execute_program, final_result
+from .engine import ExecutionEvent, execute_program_with_trace, final_result
 from .executors import ExecutionError, registered_languages
 from .extensions import ensure_runtime_extensions
 from .model import GraphError
 from .parser import ParseError, parse_file
 from .planner import enrich_and_validate, plan_lines
+from .resources import ResourceLimitError
 
 
 def _configure_stdio() -> None:
@@ -32,12 +33,16 @@ def _configure_stdio() -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ulcs",
-        description="ULCS 多語計算終端 v0.3：能力政策、Runtime 外掛與多語言 DAG",
+        description=(
+            "ULCS 多語計算終端 v0.4：資源範圍政策、平行 DAG、"
+            "執行配額與資料污染追蹤"
+        ),
     )
     parser.add_argument("program", nargs="?", help=".sos 程式路徑")
     parser.add_argument("--cwd", help="工作目錄；預設為 .sos 文件所在目錄")
     parser.add_argument("--db", help="SQLite 路徑；預設 output/ulcs.db")
     parser.add_argument("--emit-ir", help="輸出 Language Operator Graph JSON")
+    parser.add_argument("--emit-trace", help="執行後輸出結果、污染與配額追蹤 JSON")
     parser.add_argument("--output", help="指定要顯示的輸出節點；預設顯示 sink 節點")
     parser.add_argument("--timeout", type=int, default=60, help="每個 Runtime 的逾時秒數")
     parser.add_argument("--dry-run", action="store_true", help="只解析、政策檢查與顯示安全預覽")
@@ -45,14 +50,40 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--json", action="store_true", help="以 JSON 顯示最後結果")
     parser.add_argument("--list-languages", action="store_true", help="列出已註冊語言適配器")
     parser.add_argument("--list-capabilities", action="store_true", help="列出核心已知能力名稱")
-    parser.add_argument("--plugin", action="append", default=[], metavar="MODULE", help="載入 Runtime 外掛模組，可重複")
+    parser.add_argument(
+        "--plugin",
+        action="append",
+        default=[],
+        metavar="MODULE",
+        help="載入 Runtime 外掛模組，可重複",
+    )
     parser.add_argument("--policy", help="JSON 能力政策檔；未寫 mode 時預設 enforce")
-    parser.add_argument("--allow", action="append", default=[], metavar="PATTERN", help="允許能力模式，可重複，如 filesystem.*")
-    parser.add_argument("--deny", action="append", default=[], metavar="PATTERN", help="拒絕能力模式，可重複，如 network.*")
+    parser.add_argument(
+        "--allow",
+        action="append",
+        default=[],
+        metavar="PATTERN",
+        help="允許能力或 capability@resource 模式，可重複",
+    )
+    parser.add_argument(
+        "--deny",
+        action="append",
+        default=[],
+        metavar="PATTERN",
+        help="拒絕能力或 capability@resource 模式，可重複",
+    )
     parser.add_argument(
         "--enforce-capabilities",
         action="store_true",
-        help="要求所有節點能力明確符合 --allow 或政策 allow",
+        help="要求所有節點能力與資源範圍明確符合 allow",
+    )
+    parser.add_argument("--max-nodes", type=int, help="單次工作流最大節點數")
+    parser.add_argument("--max-workers", type=int, help="同一 DAG 層最大平行工作數")
+    parser.add_argument("--max-output-bytes", type=int, help="單節點最大 JSON 輸出 bytes")
+    parser.add_argument(
+        "--max-total-output-bytes",
+        type=int,
+        help="整個工作流最大累積 JSON 輸出 bytes",
     )
     return parser
 
@@ -87,6 +118,10 @@ def main(argv: list[str] | None = None) -> int:
             allow=args.allow,
             deny=args.deny,
             enforce=args.enforce_capabilities,
+            max_nodes=args.max_nodes,
+            max_workers=args.max_workers,
+            max_output_bytes=args.max_output_bytes,
+            max_total_output_bytes=args.max_total_output_bytes,
         )
         program = enrich_and_validate(parse_file(program_path))
     except (OSError, ParseError, GraphError, TypeError, CapabilityError) as exc:
@@ -101,27 +136,38 @@ def main(argv: list[str] | None = None) -> int:
             encoding="utf-8",
         )
 
-    print("=== ULCS v0.3 安全預覽 ===")
+    print("=== ULCS v0.4 安全預覽 ===")
     print(f"程式：{program_path}")
     print(f"工作目錄：{cwd}")
     print(f"SQLite：{db_path}")
     print(f"能力政策：{policy.summary()}")
+    print(
+        "執行層："
+        + " | ".join(
+            f"L{index}=" + ",".join(node.node_id for node in layer)
+            for index, layer in enumerate(program.execution_layers(), start=1)
+        )
+    )
     for line in plan_lines(program):
         print(line)
 
     decisions = policy.evaluate_program(program)
-    print("--- 能力決策 ---")
+    print("--- 能力與資源決策 ---")
     for decision in decisions:
         print(decision_line(decision))
 
     try:
         policy.check_program(program)
-    except CapabilityDeniedError as exc:
-        print(f"[能力拒絕] {exc}", file=sys.stderr)
+        if len(program.nodes) > policy.limits.max_nodes:
+            raise ResourceLimitError(
+                f"節點數 {len(program.nodes)} 超過上限 {policy.limits.max_nodes}。"
+            )
+    except (CapabilityDeniedError, ResourceLimitError) as exc:
+        print(f"[政策拒絕] {exc}", file=sys.stderr)
         return 4
 
     if args.dry_run:
-        print("\n[DRY RUN] 已完成圖與能力政策驗證，未執行任何節點。")
+        print("\n[DRY RUN] 已完成圖、資源範圍、污染來源與配額預檢，未執行任何節點。")
         return 0
 
     if not args.yes:
@@ -133,10 +179,14 @@ def main(argv: list[str] | None = None) -> int:
     def report(event: ExecutionEvent) -> None:
         preview = json.dumps(event.value, ensure_ascii=False, default=str)
         suffix = "…" if len(preview) > 240 else ""
-        print(f"[完成] {event.node_id}: {preview[:240]}{suffix}")
+        taints = ", ".join(event.taints) or "clean"
+        print(
+            f"[完成] L{event.layer} {event.node_id} "
+            f"({event.output_bytes}B; taints={taints}): {preview[:240]}{suffix}"
+        )
 
     try:
-        outputs = execute_program(
+        trace = execute_program_with_trace(
             program,
             cwd=cwd,
             db_path=db_path,
@@ -144,16 +194,34 @@ def main(argv: list[str] | None = None) -> int:
             policy=policy,
             on_complete=report,
         )
-        final = final_result(program, outputs, args.output)
-    except (ExecutionError, CapabilityDeniedError, KeyError) as exc:
+        final = final_result(program, trace.outputs, args.output)
+    except (
+        ExecutionError,
+        CapabilityDeniedError,
+        ResourceLimitError,
+        KeyError,
+    ) as exc:
         print(f"[執行失敗] {exc}", file=sys.stderr)
         return 3
+
+    if args.emit_trace:
+        target = Path(args.emit_trace)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            json.dumps(trace.to_dict(), ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
+        )
 
     print("\n=== 最終結果 ===")
     if args.json or isinstance(final, (dict, list)):
         print(json.dumps(final, ensure_ascii=False, indent=2, default=str))
     else:
         print(final)
+    print(
+        f"追蹤：總輸出 {trace.total_output_bytes}B；"
+        f"層數 {len(trace.execution_layers)}；"
+        f"最大平行度 {policy.limits.max_workers}"
+    )
     return 0
 
 

@@ -59,11 +59,15 @@ source second = http{https://example.com}
                 )
             execute.assert_not_called()
 
-    def test_log_v03_exposes_capabilities(self):
+    def test_log_v04_exposes_capabilities_and_claims(self):
         program = enrich_and_validate(parse_text("source value = py{result = 1}"))
         payload = program.to_dict()
-        self.assertEqual(payload["version"], "0.3")
+        self.assertEqual(payload["version"], "0.4")
         self.assertEqual(payload["nodes"][0]["capabilities"], ["python.execute"])
+        self.assertEqual(
+            payload["nodes"][0]["claims"],
+            [{"capability": "python.execute", "resource": "runtime://python"}],
+        )
 
 
 if __name__ == "__main__":

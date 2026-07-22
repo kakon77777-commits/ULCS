@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.4.0 — 2026-07-22
+
+### Added
+
+- `capability@resource` 資源範圍政策
+- 舊式未帶 `@` 能力規則的全資源相容語義
+- LOG v0.4 `claims`、`taint_sources` 與 `execution_layers`
+- 穩定拓樸分層與同層有界平行執行
+- `max_nodes`、`max_workers`、`max_output_bytes`、`max_total_output_bytes`
+- `--max-nodes`、`--max-workers`、`--max-output-bytes`、`--max-total-output-bytes`
+- 動態資料污染傳播與 Execution Trace
+- `--emit-trace`
+- 資源政策、LOG v0.4 與 Execution Trace 規格
+- 平行 DAG 與 scoped policy 範例
+
+### Compatibility
+
+- `.sos` 表面語法未變更
+- 未指定 `max_workers` 時預設為 1，保留既有執行時序
+- `effects` 與 `capabilities` 保留；政策新增使用 `claims`
+- 沒有 `@` 的規則等價於 `capability@*`
+- `execute_program()` 繼續回傳原始 outputs；追蹤功能由 `execute_program_with_trace()` 提供
+
+### Safety
+
+- 能力與節點數在第一個 Runtime 啟動前檢查
+- 資料庫寫入與檔案寫入／刪除在平行層中保守序列化
+- 輸出配額在值產生後以 UTF-8 JSON bytes 檢查，不宣稱具有交易回滾
+- 污染標籤只追蹤來源，不自動去污或遮罩秘密
+- 本版本仍不是作業系統沙箱
+
 ## 0.3.0 — 2026-07-22
 
 ### Added

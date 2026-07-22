@@ -1,0 +1,14 @@
+source left = py{
+result = {"value": 20, "branch": "left"}
+}
+
+source right = py{
+result = {"value": 22, "branch": "right"}
+}
+
+transform merged = py{
+result = {
+    "sum": input["left"]["value"] + input["right"]["value"],
+    "branches": [input["left"]["branch"], input["right"]["branch"]],
+}
+} from left, right
