@@ -47,5 +47,13 @@ jobs:
         run: python -m sos_mvp examples/parallel_v0.4.sos --policy examples/resource_policy_v0.4.json --dry-run --emit-ir output/parallel-v0.4.json
       - name: Execute v0.4 bounded parallel graph
         run: python -m sos_mvp examples/parallel_v0.4.sos --policy examples/resource_policy_v0.4.json --yes --json --emit-trace output/parallel-v0.4-trace.json
-      - name: Verify v0.4 IR and trace
-        run: python -c "import json; from pathlib import Path; ir=json.loads(Path('output/parallel-v0.4.json').read_text(encoding='utf-8')); trace=json.loads(Path('output/parallel-v0.4-trace.json').read_text(encoding='utf-8')); assert ir['version']=='0.4'; assert ir['execution_layers']==[['left','right'],['merged']]; assert trace['outputs']['merged']['sum']==42; assert trace['execution_layers']==[['left','right'],['merged']]"
+      - name: Verify v0.4 compatibility under LOG v0.5
+        run: python -c "import json; from pathlib import Path; ir=json.loads(Path('output/parallel-v0.4.json').read_text(encoding='utf-8')); trace=json.loads(Path('output/parallel-v0.4-trace.json').read_text(encoding='utf-8')); assert ir['version']=='0.5'; assert ir['execution_layers']==[['left','right'],['merged']]; assert trace['outputs']['merged']['sum']==42; assert trace['execution_layers']==[['left','right'],['merged']]"
+      - name: Validate v0.5 repeatability plan
+        run: python -m sos_mvp examples/cache_replay_v0.5.sos --policy examples/cache_policy_v0.5.json --dry-run --emit-ir output/cache-v0.5.json
+      - name: Execute v0.5 and emit baseline manifest
+        run: python -m sos_mvp examples/cache_replay_v0.5.sos --policy examples/cache_policy_v0.5.json --cache-mode read-write --cache-dir output/cache-v0.5 --yes --json --emit-trace output/cache-v0.5-first.json --emit-manifest output/cache-v0.5-manifest.json
+      - name: Replay v0.5 with cache and verify manifest
+        run: python -m sos_mvp examples/cache_replay_v0.5.sos --policy examples/cache_policy_v0.5.json --cache-mode read-write --cache-dir output/cache-v0.5 --yes --json --verify-manifest output/cache-v0.5-manifest.json --emit-trace output/cache-v0.5-second.json
+      - name: Verify v0.5 cache and provenance artifacts
+        run: python -c "import json; from pathlib import Path; ir=json.loads(Path('output/cache-v0.5.json').read_text(encoding='utf-8')); first=json.loads(Path('output/cache-v0.5-first.json').read_text(encoding='utf-8')); second=json.loads(Path('output/cache-v0.5-second.json').read_text(encoding='utf-8')); manifest=json.loads(Path('output/cache-v0.5-manifest.json').read_text(encoding='utf-8')); assert ir['version']=='0.5'; assert ir['nodes'][1]['deterministic'] is True; assert ir['nodes'][1]['cacheable'] is True; assert first['cache_hits']=={'text':False,'errors':False,'summary':False}; assert second['cache_hits']=={'text':False,'errors':True,'summary':False}; assert first['output_digests']==second['output_digests']; assert first['outputs']['summary']['count']==2; assert manifest['format']=='ULCS-Execution-Manifest'; assert manifest['version']=='0.5'; assert 'outputs' not in manifest"
