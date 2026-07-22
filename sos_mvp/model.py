@@ -34,6 +34,8 @@ class Node:
     runtime: str = ""
     claims: list[CapabilityClaim] = field(default_factory=list)
     taint_sources: list[str] = field(default_factory=list)
+    deterministic: bool = False
+    cacheable: bool = False
 
     @property
     def input_ref(self) -> InputRef | None:
@@ -65,6 +67,8 @@ class Node:
             "runtime": self.runtime,
             "claims": [claim.to_dict() for claim in self.claims],
             "taint_sources": list(self.taint_sources),
+            "deterministic": self.deterministic,
+            "cacheable": self.cacheable,
         }
 
 
@@ -149,7 +153,7 @@ class Program:
         layers = self.execution_layers()
         return {
             "format": "ULCS-Language-Operator-Graph",
-            "version": "0.4",
+            "version": "0.5",
             "nodes": [node.to_dict() for node in self.nodes],
             "edges": edges,
             "execution_order": [node.node_id for layer in layers for node in layer],
