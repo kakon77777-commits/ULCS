@@ -1,0 +1,16 @@
+{
+  "mode": "enforce",
+  "allow": [
+    "python.execute@runtime://python"
+  ],
+  "deny": [
+    "network.*",
+    "filesystem.delete"
+  ],
+  "limits": {
+    "max_nodes": 16,
+    "max_workers": 4,
+    "max_output_bytes": 1048576,
+    "max_total_output_bytes": 4194304
+  }
+}
