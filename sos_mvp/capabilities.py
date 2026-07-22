@@ -100,7 +100,7 @@ class CapabilityPolicy:
         enforce: bool = False,
     ) -> "CapabilityPolicy":
         base = cls.from_file(policy_path) if policy_path else cls()
-        mode = "enforce" if enforce or policy_path else base.mode
+        mode = "enforce" if enforce else base.mode
         return cls(
             mode=mode,
             allow=tuple(dict.fromkeys((*base.allow, *allow))),
