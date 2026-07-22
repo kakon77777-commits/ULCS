@@ -3,6 +3,7 @@ from __future__ import annotations
 from .executors import ExecutionError, get_adapter
 from .extensions import ensure_runtime_extensions
 from .model import GraphError, Program
+from .sqlite_runtime import install_closing_sqlite_adapter
 
 
 def _input_type(node, by_id) -> str:
@@ -15,6 +16,7 @@ def _input_type(node, by_id) -> str:
 
 def enrich_and_validate(program: Program) -> Program:
     ensure_runtime_extensions()
+    install_closing_sqlite_adapter()
     try:
         ordered = program.topological_nodes()
     except GraphError:
