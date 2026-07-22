@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.3.0 — 2026-07-22
+
+### Added
+
+- audit／enforce 能力政策
+- `--policy`、`--allow`、`--deny`、`--enforce-capabilities`
+- 完整 DAG 在第一個 Runtime 啟動前進行能力拒絕
+- LOG v0.3 `capabilities` 欄位
+- Bash、JavaScript、jq、HTTP 適配器
+- Python `ulcs.adapters` entry point 外掛載入
+- `--plugin module` 與 `ULCS_ADAPTER_MODULES`
+- `--list-capabilities`
+- HTTP localhost、`.local`、非公網 IP 與 redirect 驗證
+- HTTP 2 MiB 回應限制與 `ULCS_HTTP_ALLOW_HOSTS`
+- 四 Runtime 組合範例與 enforce 政策範例
+- 能力政策、Runtime 外掛與 LOG v0.3 規格
+
+### Compatibility
+
+- 未指定政策時使用 audit 模式，保留 v0.2 執行行為
+- `.sos` 表面語法與 DAG 結構保持相容
+- `effects` 欄位保留，新增 `capabilities` 作為政策語義欄位
+- `sos-mvp` CLI 名稱繼續保留
+
+### Security
+
+- 明確 deny 在 audit 與 enforce 模式都會拒絕
+- enforce 模式要求每一項能力符合 allow
+- 能力政策是 Runtime 啟動閘門，不宣稱為作業系統沙箱
+- 外掛模組屬受信任 Python 程式碼
+
 ## 0.2.0 — 2026-07-22
 
 ### Added

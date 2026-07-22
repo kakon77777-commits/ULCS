@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from .executors import ExecutionError, get_adapter
+from .extensions import ensure_runtime_extensions
 from .model import GraphError, Program
+from .sqlite_runtime import install_closing_sqlite_adapter
 
 
 def _input_type(node, by_id) -> str:
@@ -13,6 +15,8 @@ def _input_type(node, by_id) -> str:
 
 
 def enrich_and_validate(program: Program) -> Program:
+    ensure_runtime_extensions()
+    install_closing_sqlite_adapter()
     try:
         ordered = program.topological_nodes()
     except GraphError:
@@ -52,6 +56,6 @@ def plan_lines(program: Program) -> list[str]:
         effects = ", ".join(node.effects) if node.effects else "純計算／未偵測到外部副作用"
         lines.append(
             f"{index}. {node.node_id} [{node.language}] {node.input_type} → "
-            f"{node.output_type}; 來源={source}; Runtime={node.runtime}; 副作用={effects}"
+            f"{node.output_type}; 來源={source}; Runtime={node.runtime}; 能力={effects}"
         )
     return lines

@@ -24,6 +24,22 @@ jobs:
       - name: Install package
         run: python -m pip install -e .
       - name: Run unit tests
-        run: python -m unittest discover -s tests -v
+        run: python -m unittest discover -s tests -v > test-output.txt 2>&1
+      - name: Print unit test output
+        if: always()
+        run: python -c "from pathlib import Path; print(Path('test-output.txt').read_text(encoding='utf-8', errors='replace') if Path('test-output.txt').exists() else 'test-output.txt missing')"
+      - name: Upload unit test output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-output-${{ matrix.os }}-py${{ matrix.python-version }}
+          path: test-output.txt
+          if-no-files-found: warn
+      - name: List adapters and capabilities
+        run: |
+          python -m sos_mvp --list-languages
+          python -m sos_mvp --list-capabilities
       - name: Validate DAG example
         run: python -m sos_mvp examples/dag_merge.sos --dry-run --emit-ir output/dag.json
+      - name: Validate v0.3 policy and polyglot graph
+        run: python -m sos_mvp examples/polyglot_v0.3.sos --policy examples/capability_policy_v0.3.json --dry-run --emit-ir output/polyglot-v0.3.json

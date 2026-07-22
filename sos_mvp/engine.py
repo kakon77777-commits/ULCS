@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from .capabilities import CapabilityPolicy
 from .executors import execute_node
 from .model import Program
 
@@ -20,14 +21,18 @@ def execute_program(
     cwd: Path,
     db_path: Path,
     timeout: int = 60,
+    policy: CapabilityPolicy | None = None,
     on_complete: Callable[[ExecutionEvent], None] | None = None,
 ) -> dict[str, Any]:
     """Execute a validated DAG in stable topological order.
 
-    Independent branches are represented and scheduled correctly. v0.2 keeps
-    execution deterministic and sequential; parallel layers can be added later
-    without changing the LOG format.
+    When a capability policy is supplied, the complete graph is checked before
+    any Runtime starts. This prevents partially executed workflows when a later
+    node lacks authorization.
     """
+    if policy is not None:
+        policy.check_program(program)
+
     outputs: dict[str, Any] = {}
     for node in program.topological_nodes():
         value = execute_node(node, outputs, cwd, db_path, timeout=timeout)

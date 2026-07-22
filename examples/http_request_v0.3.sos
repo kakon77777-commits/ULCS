@@ -1,0 +1,18 @@
+# HTTP execution requires capability network.access.
+# The adapter rejects localhost, .local, and resolved non-public addresses.
+
+source remote = http{
+{
+  "url": "https://example.com/",
+  "method": "GET",
+  "headers": {"Accept": "text/html"}
+}
+}
+
+transform summary = py{
+result = {
+    "status": input["status"],
+    "url": input["url"],
+    "body_type": type(input["body"]).__name__
+}
+} from remote
