@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.5.0 — 2026-07-22
+
+### Added
+
+- Canonical JSON 與 SHA-256 摘要
+- `program_digest`、`plan_digest`、`policy_digest`
+- 逐節點 input／output digest 與 execution fingerprint
+- 內容定址快取及 `off`／`read`／`write`／`read-write` 模式
+- `--cache-mode`、`--cache-dir`
+- LOG v0.5 `deterministic` 與 `cacheable`
+- Execution Manifest 與 `--emit-manifest`
+- 重放驗證與 `--verify-manifest`
+- Execution Trace 中的 fingerprints、digests、cache hits 與 manifest
+- v0.5 快取／重放範例、規格與跨平台 CI 驗證
+
+### Compatibility
+
+- `.sos` 表面語法未變更
+- 快取預設 `off`，保留 v0.4 執行行為
+- `execute_program()` 仍回傳原始 outputs
+- v0.4 resource policy、execution layers、taints 與 limits 保持相容
+- 既有 Runtime 外掛未宣告 deterministic 時預設不可快取
+
+### Safety
+
+- 只有驗證計畫標記為 deterministic 且無外部資源效果的節點可快取
+- 上游 canonical input digest 納入下游快取鍵
+- 快取讀取會驗證格式、key 與 output digest；損壞項目視為 miss
+- 快取項目含完整輸出且未加密，敏感工作流應關閉或隔離快取
+- Manifest 不含完整 outputs，但尚未簽章，不能視為主機或 artifact attestation
+- 重放驗證比較來源污染標籤，但不宣稱證明外部世界正確性
+
 ## 0.4.0 — 2026-07-22
 
 ### Added
