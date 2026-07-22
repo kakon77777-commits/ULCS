@@ -41,7 +41,9 @@ class Node:
         return tuple(ref.node_id for ref in self.inputs)
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        value = asdict(self)
+        value["capabilities"] = list(self.effects)
+        return value
 
 
 @dataclass(slots=True)
@@ -111,7 +113,7 @@ class Program:
         ]
         return {
             "format": "ULCS-Language-Operator-Graph",
-            "version": "0.2",
+            "version": "0.3",
             "nodes": [node.to_dict() for node in self.nodes],
             "edges": edges,
             "execution_order": [node.node_id for node in self.topological_nodes()],
