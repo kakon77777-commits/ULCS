@@ -1,0 +1,27 @@
+# ULCS v0.3: Python → jq → JavaScript → Bash
+
+source raw = py{
+result = {
+    "items": [
+        {"name": "alpha", "value": 1},
+        {"name": "beta", "value": 2},
+        {"name": "gamma", "value": 4}
+    ]
+}
+}
+
+transform selected = jq{
+.items | map(select(.value >= 2))
+} from raw
+
+transform summary = js{
+result = {
+    count: input.length,
+    total: input.reduce((sum, item) => sum + item.value, 0),
+    names: input.map(item => item.name)
+};
+} from selected
+
+run echoed = bash{
+printf '%s' "$ULCS_INPUT"
+} from summary
