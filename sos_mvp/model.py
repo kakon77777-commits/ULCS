@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from typing import Any
+
+from .resources import CapabilityClaim
 
 
 class GraphError(ValueError):
@@ -30,6 +32,8 @@ class Node:
     output_type: str = "Any"
     effects: list[str] = field(default_factory=list)
     runtime: str = ""
+    claims: list[CapabilityClaim] = field(default_factory=list)
+    taint_sources: list[str] = field(default_factory=list)
 
     @property
     def input_ref(self) -> InputRef | None:
@@ -41,9 +45,27 @@ class Node:
         return tuple(ref.node_id for ref in self.inputs)
 
     def to_dict(self) -> dict[str, Any]:
-        value = asdict(self)
-        value["capabilities"] = list(self.effects)
-        return value
+        return {
+            "node_id": self.node_id,
+            "role": self.role,
+            "language": self.language,
+            "code": self.code,
+            "inputs": [
+                {
+                    "node_id": ref.node_id,
+                    "field": ref.field,
+                    "alias": ref.alias,
+                }
+                for ref in self.inputs
+            ],
+            "input_type": self.input_type,
+            "output_type": self.output_type,
+            "effects": list(self.effects),
+            "capabilities": list(self.effects),
+            "runtime": self.runtime,
+            "claims": [claim.to_dict() for claim in self.claims],
+            "taint_sources": list(self.taint_sources),
+        }
 
 
 @dataclass(slots=True)
@@ -58,7 +80,9 @@ class Program:
             result[node.node_id] = node
         return result
 
-    def topological_nodes(self) -> list[Node]:
+    def _graph_state(
+        self,
+    ) -> tuple[dict[str, Node], dict[str, int], dict[str, list[str]], dict[str, int]]:
         by_id = self.node_map()
         order_index = {node.node_id: index for index, node in enumerate(self.nodes)}
         indegree = {node_id: 0 for node_id in by_id}
@@ -76,25 +100,36 @@ class Program:
                 seen.add(ref.node_id)
                 indegree[node.node_id] += 1
                 children[ref.node_id].append(node.node_id)
+        return by_id, indegree, children, order_index
 
+    def execution_layers(self) -> list[list[Node]]:
+        by_id, indegree, children, order_index = self._graph_state()
         ready = sorted(
             (node_id for node_id, degree in indegree.items() if degree == 0),
             key=order_index.__getitem__,
         )
-        result: list[Node] = []
-        while ready:
-            current = ready.pop(0)
-            result.append(by_id[current])
-            for child in sorted(children[current], key=order_index.__getitem__):
-                indegree[child] -= 1
-                if indegree[child] == 0:
-                    ready.append(child)
-                    ready.sort(key=order_index.__getitem__)
+        layers: list[list[Node]] = []
+        visited = 0
 
-        if len(result) != len(self.nodes):
+        while ready:
+            current_layer = list(ready)
+            layers.append([by_id[node_id] for node_id in current_layer])
+            visited += len(current_layer)
+            next_ready: list[str] = []
+            for current in current_layer:
+                for child in sorted(children[current], key=order_index.__getitem__):
+                    indegree[child] -= 1
+                    if indegree[child] == 0:
+                        next_ready.append(child)
+            ready = sorted(next_ready, key=order_index.__getitem__)
+
+        if visited != len(self.nodes):
             cycle_nodes = [node_id for node_id, degree in indegree.items() if degree > 0]
             raise GraphError(f"語言算子圖存在循環：{', '.join(cycle_nodes)}")
-        return result
+        return layers
+
+    def topological_nodes(self) -> list[Node]:
+        return [node for layer in self.execution_layers() for node in layer]
 
     def sink_nodes(self) -> list[Node]:
         referenced = {ref.node_id for node in self.nodes for ref in node.inputs}
@@ -111,11 +146,13 @@ class Program:
             for node in self.nodes
             for ref in node.inputs
         ]
+        layers = self.execution_layers()
         return {
             "format": "ULCS-Language-Operator-Graph",
-            "version": "0.3",
+            "version": "0.4",
             "nodes": [node.to_dict() for node in self.nodes],
             "edges": edges,
-            "execution_order": [node.node_id for node in self.topological_nodes()],
+            "execution_order": [node.node_id for layer in layers for node in layer],
+            "execution_layers": [[node.node_id for node in layer] for layer in layers],
             "sinks": [node.node_id for node in self.sink_nodes()],
         }
