@@ -1,0 +1,12 @@
+{
+  "mode": "enforce",
+  "allow": [
+    "python.execute",
+    "javascript.execute",
+    "process.execute"
+  ],
+  "deny": [
+    "network.*",
+    "filesystem.delete"
+  ]
+}
