@@ -43,3 +43,9 @@ jobs:
         run: python -m sos_mvp examples/dag_merge.sos --dry-run --emit-ir output/dag.json
       - name: Validate v0.3 policy and polyglot graph
         run: python -m sos_mvp examples/polyglot_v0.3.sos --policy examples/capability_policy_v0.3.json --dry-run --emit-ir output/polyglot-v0.3.json
+      - name: Validate v0.4 resource policy and execution layers
+        run: python -m sos_mvp examples/parallel_v0.4.sos --policy examples/resource_policy_v0.4.json --dry-run --emit-ir output/parallel-v0.4.json
+      - name: Execute v0.4 bounded parallel graph
+        run: python -m sos_mvp examples/parallel_v0.4.sos --policy examples/resource_policy_v0.4.json --yes --json --emit-trace output/parallel-v0.4-trace.json
+      - name: Verify v0.4 IR and trace
+        run: python -c "import json; from pathlib import Path; ir=json.loads(Path('output/parallel-v0.4.json').read_text(encoding='utf-8')); trace=json.loads(Path('output/parallel-v0.4-trace.json').read_text(encoding='utf-8')); assert ir['version']=='0.4'; assert ir['execution_layers']==[['left','right'],['merged']]; assert trace['outputs']['merged']['sum']==42; assert trace['execution_layers']==[['left','right'],['merged']]"
