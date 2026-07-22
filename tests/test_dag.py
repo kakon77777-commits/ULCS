@@ -54,7 +54,7 @@ transform b = py{result = input} from a
         with self.assertRaises(GraphError):
             enrich_and_validate(program)
 
-    def test_ir_contains_edges_and_sinks(self):
+    def test_ir_contains_edges_sinks_and_capabilities(self):
         program = enrich_and_validate(
             parse_text(
                 """
@@ -64,9 +64,10 @@ transform b = py{result = input + 1} from a
             )
         )
         ir = program.to_dict()
-        self.assertEqual(ir["version"], "0.2")
+        self.assertEqual(ir["version"], "0.3")
         self.assertEqual(ir["edges"][0]["from"], "a")
         self.assertEqual(ir["sinks"], ["b"])
+        self.assertEqual(ir["nodes"][0]["capabilities"], ["python.execute"])
 
 
 if __name__ == "__main__":
