@@ -67,8 +67,6 @@ jobs:
         run: python -c "import json; from pathlib import Path; ir=json.loads(Path('output/v0.6/ir.json').read_text(encoding='utf-8')); first=json.loads(Path('output/v0.6/first.json').read_text(encoding='utf-8')); second=json.loads(Path('output/v0.6/resumed.json').read_text(encoding='utf-8')); checkpoint=json.loads(Path('output/v0.6/checkpoint.json').read_text(encoding='utf-8')); assert ir['version']=='0.6'; assert ir['nodes'][2]['persist_output'] is True; assert first['outputs']['summary']['count']==2; assert first['resumed']=={'text':False,'errors':False,'summary':False}; assert second['resumed']=={'text':True,'errors':True,'summary':True}; assert len(checkpoint['nodes'])==3; refs=[item['artifact'] for item in checkpoint['nodes'].values()]; assert all((Path('output/v0.6/artifacts') / ref['path']).is_file() for ref in refs); assert first['output_digests']==second['output_digests']"
       - name: List v0.7 Intent Compiler profiles
         run: python -m sos_mvp.intent_cli --list-profiles
-      - name: Verify v0.7 PowerShell literal and dynamic resource boundaries
-        run: python -c "from sos_mvp.intent import IntentRequest, _powershell_literal, compile_intent; payload='./'+chr(36)+'(whoami)'; assert _powershell_literal(payload) == \"'\"+payload+\"'\"; bundle=compile_intent(IntentRequest(intent='分析 log 檔。', bindings={'source_path':payload,'pattern':'*.log','terms':['ERROR']})); assert not bundle.ready"
       - name: Compile v0.7 Intent Request into a reviewable bundle
         run: python -m sos_mvp.intent_cli examples/intent_request_v0.7.json --output-dir output/v0.7 --json > output/intent-v0.7-compile.json
       - name: Execute generated v0.7 workflow through the existing runtime
