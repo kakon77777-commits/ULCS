@@ -200,11 +200,11 @@ Artifact Reference：
 {
   "format": "ULCS-Artifact",
   "version": "0.6",
-  "digest": "<sha256>",
+  "digest": "<content-sha256>",
   "media_type": "application/json",
   "encoding": "utf-8",
   "size": 123,
-  "path": "objects/ab/<digest>.json",
+  "path": "objects/ab/<content-digest>.<schema-digest-or-no-schema>.json",
   "schema_digest": "<sha256-or-null>"
 }
 ```
@@ -214,6 +214,8 @@ Artifact Reference：
 - `off`：維持 v0.5 記憶體行為；
 - `auto`：達到 `--artifact-threshold-bytes` 或 contract 要求時保存；
 - `all`：保存每個完成節點。
+
+相同內容與相同 schema 可共用 Artifact；相同內容若使用不同 schema，內容 digest 相同，但物件路徑不同。輸出必須先通過單節點與累積配額，才會寫入 Artifact Store。
 
 Artifact 是可驗證產物，不等同 cache。非 deterministic 節點也能產生 Artifact，但不能因此被一般快取任意跳過。
 
