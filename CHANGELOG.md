@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.6.0 — 2026-07-23
+
+### Added
+
+- Artifact Contract sidecar 與節點 `input_schema`／`output_schema`／`persist_output`
+- 受限 JSON Schema 驗證器
+- 內容定址 Artifact Store 與 Artifact Reference
+- Artifact digest、size、media type、encoding、path 與 schema digest
+- `--contract`、`--artifact-mode`、`--artifact-dir`、`--artifact-threshold-bytes`
+- 每個拓樸層完成後原子寫入 Execution Checkpoint
+- `--checkpoint` 與 `--resume`
+- 部分與完整 DAG 恢復
+- Trace `resumed`、`artifacts`、`checkpoint_path`
+- Manifest `artifact_digest` 與 `schema_digest`
+- Artifact、Contract、Checkpoint／Resume 與 LOG v0.6 規格
+- v0.6 工作流、contract、policy 與跨平台恢復驗證
+
+### Compatibility
+
+- `.sos` 表面語法未變更
+- Artifact 預設 `off`，保留 v0.5 記憶體執行行為
+- Runtime Adapter API 未變更
+- 節點仍向下游傳遞普通 JSON 相容值，不傳遞 Artifact Reference
+- v0.5 Manifest 可讀；新 Manifest 與 LOG 輸出版本為 0.6
+- 快取、能力政策、配額、平行層、污染追蹤與重放語義保持相容
+
+### Safety
+
+- Artifact path 拒絕絕對路徑、`..` 與 Store 逃逸
+- Artifact 讀取重新驗證 metadata、digest、size、schema digest 與值 schema
+- Resume 要求 program／plan／policy digest 完全一致
+- 節點 fingerprint 與 output digest 不一致時拒絕恢復
+- Checkpoint 不保存完整值，完整輸出位於未加密 Artifact Store
+- Checkpoint 不是交易回滾，不能撤銷已發生的外部副作用
+- v0.6 schema 僅為文件所列子集，不宣稱完整 JSON Schema 相容
+
 ## 0.5.0 — 2026-07-22
 
 ### Added
