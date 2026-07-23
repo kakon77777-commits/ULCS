@@ -103,8 +103,31 @@ class IntentCompilerTests(unittest.TestCase):
         bundle = compile_intent(request)
 
         self.assertTrue(bundle.ready)
-        self.assertIn('Get-ChildItem "./logs"', bundle.workflow or "")
+        self.assertIn("Get-ChildItem './logs'", bundle.workflow or "")
         self.assertIn("filesystem.read@./logs", bundle.validation["required_claims"])
+
+    def test_powershell_bindings_use_non_interpolating_literals(self) -> None:
+        request = IntentRequest(
+            intent="分析 log 檔。",
+            bindings={
+                "source_path": "./$([System.Environment]::CurrentDirectory)",
+                "pattern": "*.log$([System.Environment]::MachineName)",
+                "terms": ["ERROR"],
+            },
+        )
+        bundle = compile_intent(request)
+
+        self.assertTrue(bundle.ready)
+        workflow = bundle.workflow or ""
+        self.assertIn(
+            "Get-ChildItem './$([System.Environment]::CurrentDirectory)'",
+            workflow,
+        )
+        self.assertIn(
+            "-Filter '*.log$([System.Environment]::MachineName)'",
+            workflow,
+        )
+        self.assertNotIn('Get-ChildItem "./$(', workflow)
 
     def test_path_with_spaces_is_not_guessed_safe(self) -> None:
         request = IntentRequest(
