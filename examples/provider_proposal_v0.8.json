@@ -1,0 +1,29 @@
+{
+  "format": "ULCS-Intent-Provider-Proposal",
+  "version": "0.8",
+  "provider": {
+    "id": "example-provider",
+    "model": "review-only-fixture"
+  },
+  "request": {
+    "format": "ULCS-Intent-Request",
+    "version": "0.7",
+    "intent": "分析以下日誌，找出 ERROR 與 FATAL，統計各類數量。",
+    "profile": "log-analysis",
+    "bindings": {
+      "text": "ERROR one\nINFO two\nFATAL three\nERROR four",
+      "terms": [
+        "ERROR",
+        "FATAL"
+      ]
+    },
+    "preferences": {
+      "include_matches": true,
+      "persist_summary": true
+    }
+  },
+  "notes": [
+    "Provider 只提出意圖資料，不提供 workflow、policy、status 或 approval。"
+  ],
+  "confidence": 0.8
+}
