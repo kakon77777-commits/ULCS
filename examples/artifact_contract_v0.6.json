@@ -1,0 +1,33 @@
+{
+  "format": "ULCS-Artifact-Contract",
+  "version": "0.6",
+  "nodes": {
+    "text": {
+      "output_schema": {"type": "string", "minLength": 1}
+    },
+    "errors": {
+      "input_schema": {"type": "string"},
+      "output_schema": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["match"],
+          "properties": {"match": {"type": "string"}}
+        }
+      }
+    },
+    "summary": {
+      "input_schema": {"type": "array"},
+      "output_schema": {
+        "type": "object",
+        "required": ["count", "matches"],
+        "properties": {
+          "count": {"type": "integer"},
+          "matches": {"type": "array", "items": {"type": "string"}}
+        },
+        "additionalProperties": false
+      },
+      "persist": true
+    }
+  }
+}
