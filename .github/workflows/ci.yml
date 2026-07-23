@@ -29,7 +29,7 @@ jobs:
         run: python -m unittest discover -s tests -v > test-output.txt 2>&1
       - name: Print unit test output
         if: always()
-        run: python -c "from pathlib import Path; print(Path('test-output.txt').read_text(encoding='utf-8', errors='replace') if Path('test-output.txt').exists() else 'test-output.txt missing')"
+        run: python -c "import sys; from pathlib import Path; path=Path('test-output.txt'); text=path.read_text(encoding='utf-8', errors='replace') if path.exists() else 'test-output.txt missing'; sys.stdout.buffer.write(text.encode('utf-8', errors='replace'))"
       - name: Upload unit test output
         if: always()
         uses: actions/upload-artifact@v4
