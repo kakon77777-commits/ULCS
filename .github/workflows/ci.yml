@@ -16,6 +16,8 @@ jobs:
         os: [ubuntu-latest, windows-latest]
         python-version: ["3.11", "3.12", "3.13"]
     runs-on: ${{ matrix.os }}
+    env:
+      ULCS_CI_APPROVAL_KEY: ci-approval-key-0123456789abcdef
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -73,3 +75,13 @@ jobs:
         run: python -m sos_mvp output/v0.7/workflow.sos --policy output/v0.7/capability-policy.json --contract output/v0.7/artifact-contract.json --artifact-mode all --artifact-dir output/v0.7/artifacts --yes --json --emit-trace output/v0.7/trace.json
       - name: Verify v0.7 Intent Bundle and generated execution
         run: python -c "import json; from pathlib import Path; compile=json.loads(Path('output/intent-v0.7-compile.json').read_text(encoding='utf-8')); plan=json.loads(Path('output/v0.7/intent-plan.json').read_text(encoding='utf-8')); bundle=json.loads(Path('output/v0.7/intent-bundle.json').read_text(encoding='utf-8')); policy=json.loads(Path('output/v0.7/capability-policy.json').read_text(encoding='utf-8')); trace=json.loads(Path('output/v0.7/trace.json').read_text(encoding='utf-8')); assert compile['status']=='ready'; assert plan['status']=='ready'; assert bundle['format']=='ULCS-Intent-Bundle'; assert bundle['version']=='0.7'; assert policy['mode']=='enforce'; assert trace['outputs']['summary']['total']==3; assert trace['outputs']['summary']['counts']=={'ERROR':2,'FATAL':1}; assert all(Path('output/v0.7', name).is_file() for name in ('workflow.sos','artifact-contract.json','capability-policy.json','intent-plan.json','intent-bundle.json'))"
+      - name: Compile v0.8 Provider Proposal into Review Bundle
+        run: python -m sos_mvp.provider_cli examples/provider_proposal_v0.8.json --output-dir output/v0.8 --json > output/provider-v0.8-compile.json
+      - name: Approve v0.8 Review Bundle
+        run: python -m sos_mvp.approval_cli approve output/v0.8/review-bundle.json --approver ci-matrix --reason "CI fixture approval" --key-env ULCS_CI_APPROVAL_KEY --output output/v0.8/approval.json
+      - name: Verify v0.8 Approval Record
+        run: python -m sos_mvp.approval_cli verify output/v0.8/review-bundle.json output/v0.8/approval.json --key-env ULCS_CI_APPROVAL_KEY --json
+      - name: Execute v0.8 approved snapshot
+        run: python -m sos_mvp.approved_cli output/v0.8/review-bundle.json output/v0.8/approval.json --key-env ULCS_CI_APPROVAL_KEY -- --artifact-mode all --artifact-dir output/v0.8/artifacts --yes --json --emit-trace output/v0.8/trace.json
+      - name: Verify v0.8 Provider Review and approved execution
+        run: python -c "import json; from pathlib import Path; compile=json.loads(Path('output/provider-v0.8-compile.json').read_text(encoding='utf-8')); review=json.loads(Path('output/v0.8/review-bundle.json').read_text(encoding='utf-8')); approval=json.loads(Path('output/v0.8/approval.json').read_text(encoding='utf-8')); trace=json.loads(Path('output/v0.8/trace.json').read_text(encoding='utf-8')); assert compile['intent_status']=='ready'; assert review['format']=='ULCS-Review-Bundle'; assert review['version']=='0.8'; assert approval['decision']=='approve'; assert approval['algorithm']=='hmac-sha256'; assert trace['outputs']['summary']['total']==3; assert trace['outputs']['summary']['counts']=={'ERROR':2,'FATAL':1}; assert len(review['files'])==6"
