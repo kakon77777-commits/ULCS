@@ -47,18 +47,13 @@ def build_parser() -> argparse.ArgumentParser:
     key_group = parser.add_mutually_exclusive_group(required=True)
     key_group.add_argument("--key-env", help="HMAC key 的環境變數名稱")
     key_group.add_argument("--key-file", help="HMAC key file")
-    parser.add_argument(
-        "runtime_args",
-        nargs=argparse.REMAINDER,
-        help="傳給 ulcs runtime 的其餘參數；可先放 -- 分隔",
-    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     _configure_stdio()
-    args = build_parser().parse_args(argv)
-    runtime_args = list(args.runtime_args)
+    args, runtime_args = build_parser().parse_known_args(argv)
+    runtime_args = list(runtime_args)
     if runtime_args[:1] == ["--"]:
         runtime_args = runtime_args[1:]
     try:
