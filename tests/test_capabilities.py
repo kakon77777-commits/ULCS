@@ -59,10 +59,10 @@ source second = http{https://example.com}
                 )
             execute.assert_not_called()
 
-    def test_log_v05_exposes_claims_and_repeatability(self):
+    def test_log_v06_exposes_claims_repeatability_and_contract_fields(self):
         program = enrich_and_validate(parse_text("source value = py{result = 1}"))
         payload = program.to_dict()
-        self.assertEqual(payload["version"], "0.5")
+        self.assertEqual(payload["version"], "0.6")
         self.assertEqual(payload["nodes"][0]["capabilities"], ["python.execute"])
         self.assertEqual(
             payload["nodes"][0]["claims"],
@@ -70,6 +70,9 @@ source second = http{https://example.com}
         )
         self.assertFalse(payload["nodes"][0]["deterministic"])
         self.assertFalse(payload["nodes"][0]["cacheable"])
+        self.assertIsNone(payload["nodes"][0]["input_schema"])
+        self.assertIsNone(payload["nodes"][0]["output_schema"])
+        self.assertFalse(payload["nodes"][0]["persist_output"])
 
 
 if __name__ == "__main__":
