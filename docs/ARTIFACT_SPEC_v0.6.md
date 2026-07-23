@@ -10,11 +10,11 @@ Artifact 是節點輸出的可驗證持久化投影。Runtime 與下游節點仍
 {
   "format": "ULCS-Artifact",
   "version": "0.6",
-  "digest": "<sha256>",
+  "digest": "<content-sha256>",
   "media_type": "application/json",
   "encoding": "utf-8",
   "size": 123,
-  "path": "objects/ab/<digest>.json",
+  "path": "objects/ab/<content-digest>.<schema-digest-or-no-schema>.json",
   "schema_digest": "<sha256-or-null>"
 }
 ```
@@ -26,11 +26,11 @@ Artifact 是節點輸出的可驗證持久化投影。Runtime 與下游節點仍
 ```text
 <artifact-dir>/
   objects/
-    <digest-prefix>/
-      <digest>.json
+    <content-digest-prefix>/
+      <content-digest>.<schema-digest-or-no-schema>.json
 ```
 
-物件不可由節點名稱定位；相同內容與相同 schema 可共用物件。寫入使用同目錄暫存檔與原子 replace。
+物件不可由節點名稱定位；相同內容與相同 schema 可共用物件。相同內容若使用不同 schema，內容 digest 相同，但 schema digest 與物件路徑不同，避免契約 metadata 互相覆蓋。寫入使用同目錄暫存檔與原子 replace。
 
 ## 4. 驗證
 
@@ -55,6 +55,8 @@ CLI 提供：
 - `all`：每個完成節點都建立。
 
 checkpoint／resume 會強制 `persist_all`，因為只保存摘要而不保存值的 checkpoint 無法支援恢復。
+
+輸出必須先通過單節點與累積輸出配額，才可以寫入 Artifact Store。配額拒絕的輸出不應留下新的 Artifact。
 
 ## 6. 與快取的差異
 
