@@ -3,10 +3,19 @@ from __future__ import annotations
 import json
 import threading
 from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable
 
+from .artifacts import (
+    ArtifactConfig,
+    ArtifactRef,
+    ArtifactStore,
+    CheckpointError,
+    ExecutionCheckpoint,
+    SchemaValidationError,
+    validate_schema,
+)
 from .capabilities import CapabilityPolicy
 from .executors import execute_node, resolve_input
 from .model import Node, Program
@@ -31,8 +40,10 @@ class ExecutionEvent:
     output_bytes: int = 0
     layer: int = 0
     cache_hit: bool = False
+    resumed: bool = False
     fingerprint: str = ""
     output_digest: str = ""
+    artifact: ArtifactRef | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,7 +57,10 @@ class ExecutionTrace:
     input_digests: dict[str, str]
     output_digests: dict[str, str]
     cache_hits: dict[str, bool]
+    resumed: dict[str, bool]
+    artifacts: dict[str, ArtifactRef | None]
     cache_mode: str
+    checkpoint_path: str | None
     manifest: ExecutionManifest
 
     def to_dict(self) -> dict[str, Any]:
@@ -60,7 +74,13 @@ class ExecutionTrace:
             "input_digests": dict(self.input_digests),
             "output_digests": dict(self.output_digests),
             "cache_hits": dict(self.cache_hits),
+            "resumed": dict(self.resumed),
+            "artifacts": {
+                key: (ref.to_dict() if ref is not None else None)
+                for key, ref in self.artifacts.items()
+            },
             "cache_mode": self.cache_mode,
+            "checkpoint_path": self.checkpoint_path,
             "manifest": self.manifest.to_dict(),
         }
 
@@ -72,6 +92,8 @@ class _NodeRunResult:
     input_digest: str
     output_digest: str
     cache_hit: bool
+    resumed: bool = False
+    artifact: ArtifactRef | None = None
 
 
 def execute_program(
@@ -83,6 +105,9 @@ def execute_program(
     policy: CapabilityPolicy | None = None,
     limits: ExecutionLimits | None = None,
     cache_config: CacheConfig | None = None,
+    artifact_config: ArtifactConfig | None = None,
+    checkpoint_path: Path | None = None,
+    resume_checkpoint: ExecutionCheckpoint | None = None,
     on_complete: Callable[[ExecutionEvent], None] | None = None,
 ) -> dict[str, Any]:
     return execute_program_with_trace(
@@ -93,6 +118,9 @@ def execute_program(
         policy=policy,
         limits=limits,
         cache_config=cache_config,
+        artifact_config=artifact_config,
+        checkpoint_path=checkpoint_path,
+        resume_checkpoint=resume_checkpoint,
         on_complete=on_complete,
     ).outputs
 
@@ -106,15 +134,12 @@ def execute_program_with_trace(
     policy: CapabilityPolicy | None = None,
     limits: ExecutionLimits | None = None,
     cache_config: CacheConfig | None = None,
+    artifact_config: ArtifactConfig | None = None,
+    checkpoint_path: Path | None = None,
+    resume_checkpoint: ExecutionCheckpoint | None = None,
     on_complete: Callable[[ExecutionEvent], None] | None = None,
 ) -> ExecutionTrace:
-    """Execute a validated DAG with bounded parallelism and provenance.
-
-    Authorization and node-count quotas are checked before any Runtime starts.
-    Only nodes marked deterministic and cacheable by the validated plan may use
-    the content-addressed cache. Mutating filesystem/database nodes remain
-    conservatively serialized.
-    """
+    """Execute a validated DAG with bounded parallelism and durable artifacts."""
     if policy is not None:
         policy.check_program(program)
     effective_limits = limits or (policy.limits if policy is not None else ExecutionLimits())
@@ -126,6 +151,13 @@ def execute_program_with_trace(
             f"節點數 {len(program.nodes)} 超過上限 {effective_limits.max_nodes}。"
         )
 
+    if checkpoint_path is not None or resume_checkpoint is not None:
+        if artifact_config is None:
+            artifact_config = ArtifactConfig(directory=cwd / ".ulcs-artifacts", persist_all=True)
+        elif not artifact_config.persist_all:
+            artifact_config = replace(artifact_config, persist_all=True)
+    artifact_store = ArtifactStore(artifact_config) if artifact_config is not None else None
+
     outputs: dict[str, Any] = {}
     taints: dict[str, tuple[str, ...]] = {}
     output_bytes: dict[str, int] = {}
@@ -133,6 +165,8 @@ def execute_program_with_trace(
     input_digests: dict[str, str] = {}
     output_digests: dict[str, str] = {}
     cache_hits: dict[str, bool] = {}
+    resumed: dict[str, bool] = {}
+    artifacts: dict[str, ArtifactRef | None] = {}
     total_output_bytes = 0
     serial_effect_lock = threading.Lock()
     layers = program.execution_layers()
@@ -140,15 +174,65 @@ def execute_program_with_trace(
     current_plan_digest = plan_digest(program)
     current_policy_digest = policy_digest(policy)
 
+    if resume_checkpoint is not None:
+        if artifact_store is None:
+            raise CheckpointError("resume 需要 Artifact Store。")
+        resume_checkpoint.verify_plan(
+            current_program_digest,
+            current_plan_digest,
+            current_policy_digest,
+        )
+
     for layer_number, layer in enumerate(layers, start=1):
         worker_count = min(effective_limits.max_workers, len(layer))
         futures: dict[str, Future[_NodeRunResult]] = {}
 
+        def persist_if_needed(node: Node, value: Any) -> ArtifactRef | None:
+            if artifact_store is None:
+                return None
+            size = _encoded_size(value)
+            if not artifact_store.should_persist(size=size, explicit=node.persist_output):
+                return None
+            return artifact_store.store(value, node.output_schema)
+
         def run(node: Node) -> _NodeRunResult:
             input_value = resolve_input(node, outputs)
+            try:
+                validate_schema(input_value, node.input_schema)
+            except SchemaValidationError as exc:
+                raise SchemaValidationError(f"節點 {node.node_id} input schema 失敗：{exc}") from exc
             fingerprint, input_digest = node_fingerprint(node, input_value)
+
+            if resume_checkpoint is not None and node.node_id in resume_checkpoint.nodes:
+                saved = resume_checkpoint.nodes[node.node_id]
+                if str(saved.get("fingerprint", "")) != fingerprint:
+                    raise CheckpointError(f"節點 {node.node_id} 的 checkpoint fingerprint 不一致。")
+                raw_ref = saved.get("artifact")
+                if not isinstance(raw_ref, dict):
+                    raise CheckpointError(f"節點 {node.node_id} 的 checkpoint 缺少 artifact。")
+                ref = ArtifactRef.from_mapping(raw_ref)
+                assert artifact_store is not None
+                value = artifact_store.load(ref, node.output_schema)
+                output_digest = digest_value(value)
+                if output_digest != str(saved.get("output_digest", "")):
+                    raise CheckpointError(f"節點 {node.node_id} 的 checkpoint output digest 不一致。")
+                return _NodeRunResult(
+                    value=value,
+                    fingerprint=fingerprint,
+                    input_digest=input_digest,
+                    output_digest=output_digest,
+                    cache_hit=False,
+                    resumed=True,
+                    artifact=ref,
+                )
+
             if node.cacheable:
                 entry = cache.load(fingerprint)
+                if entry is not None:
+                    try:
+                        validate_schema(entry.value, node.output_schema)
+                    except SchemaValidationError:
+                        entry = None
                 if entry is not None:
                     return _NodeRunResult(
                         value=entry.value,
@@ -156,6 +240,7 @@ def execute_program_with_trace(
                         input_digest=input_digest,
                         output_digest=entry.output_digest,
                         cache_hit=True,
+                        artifact=persist_if_needed(node, entry.value),
                     )
 
             if _requires_serial_effects(node):
@@ -163,6 +248,11 @@ def execute_program_with_trace(
                     value = execute_node(node, outputs, cwd, db_path, timeout=timeout)
             else:
                 value = execute_node(node, outputs, cwd, db_path, timeout=timeout)
+
+            try:
+                validate_schema(value, node.output_schema)
+            except SchemaValidationError as exc:
+                raise SchemaValidationError(f"節點 {node.node_id} output schema 失敗：{exc}") from exc
 
             output_digest = digest_value(value)
             if node.cacheable:
@@ -176,6 +266,7 @@ def execute_program_with_trace(
                 input_digest=input_digest,
                 output_digest=output_digest,
                 cache_hit=False,
+                artifact=persist_if_needed(node, value),
             )
 
         with ThreadPoolExecutor(
@@ -214,7 +305,11 @@ def execute_program_with_trace(
                     for dependency in node.dependencies
                     for label in taints.get(dependency, ())
                 }
-                node_taints = tuple(sorted(inherited | set(node.taint_sources)))
+                if result.resumed and resume_checkpoint is not None:
+                    saved_taints = resume_checkpoint.nodes[node.node_id].get("taints", [])
+                    node_taints = tuple(sorted(str(item) for item in saved_taints))
+                else:
+                    node_taints = tuple(sorted(inherited | set(node.taint_sources)))
                 outputs[node.node_id] = result.value
                 taints[node.node_id] = node_taints
                 output_bytes[node.node_id] = size
@@ -222,6 +317,8 @@ def execute_program_with_trace(
                 input_digests[node.node_id] = result.input_digest
                 output_digests[node.node_id] = result.output_digest
                 cache_hits[node.node_id] = result.cache_hit
+                resumed[node.node_id] = result.resumed
+                artifacts[node.node_id] = result.artifact
                 total_output_bytes += size
 
                 if on_complete is not None:
@@ -233,10 +330,38 @@ def execute_program_with_trace(
                             output_bytes=size,
                             layer=layer_number,
                             cache_hit=result.cache_hit,
+                            resumed=result.resumed,
                             fingerprint=result.fingerprint,
                             output_digest=result.output_digest,
+                            artifact=result.artifact,
                         )
                     )
+
+        if checkpoint_path is not None:
+            if artifact_store is None:
+                raise CheckpointError("checkpoint 需要 Artifact Store。")
+            checkpoint_nodes: dict[str, dict[str, Any]] = {}
+            for completed in program.topological_nodes():
+                node_id = completed.node_id
+                if node_id not in outputs:
+                    continue
+                ref = artifacts.get(node_id)
+                if ref is None:
+                    ref = artifact_store.store(outputs[node_id], completed.output_schema)
+                    artifacts[node_id] = ref
+                checkpoint_nodes[node_id] = {
+                    "fingerprint": node_fingerprints[node_id],
+                    "input_digest": input_digests[node_id],
+                    "output_digest": output_digests[node_id],
+                    "taints": list(taints[node_id]),
+                    "artifact": ref.to_dict(),
+                }
+            ExecutionCheckpoint(
+                program_digest=current_program_digest,
+                plan_digest=current_plan_digest,
+                policy_digest=current_policy_digest,
+                nodes=checkpoint_nodes,
+            ).write(checkpoint_path)
 
     execution_layers = tuple(tuple(node.node_id for node in layer) for layer in layers)
     manifest_nodes = {
@@ -250,7 +375,14 @@ def execute_program_with_trace(
             "deterministic": node.deterministic,
             "cacheable": node.cacheable,
             "cache_hit": cache_hits[node.node_id],
+            "resumed": resumed[node.node_id],
             "output_bytes": output_bytes[node.node_id],
+            "artifact_digest": (
+                artifacts[node.node_id].digest if artifacts[node.node_id] is not None else None
+            ),
+            "schema_digest": (
+                artifacts[node.node_id].schema_digest if artifacts[node.node_id] is not None else None
+            ),
         }
         for node in program.topological_nodes()
     }
@@ -271,7 +403,10 @@ def execute_program_with_trace(
         input_digests=input_digests,
         output_digests=output_digests,
         cache_hits=cache_hits,
+        resumed=resumed,
+        artifacts=artifacts,
         cache_mode=effective_cache.mode,
+        checkpoint_path=str(checkpoint_path) if checkpoint_path is not None else None,
         manifest=manifest,
     )
 
