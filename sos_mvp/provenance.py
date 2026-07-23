@@ -11,7 +11,8 @@ from typing import Any, Mapping
 CACHE_FORMAT = "ULCS-Content-Addressed-Cache"
 CACHE_VERSION = "0.5"
 MANIFEST_FORMAT = "ULCS-Execution-Manifest"
-MANIFEST_VERSION = "0.5"
+MANIFEST_VERSION = "0.6"
+_SUPPORTED_MANIFEST_VERSIONS = {"0.5", "0.6"}
 _CACHE_MODES = {"off", "read", "write", "read-write"}
 
 
@@ -65,6 +66,9 @@ def program_digest(program: Any) -> str:
                     {"node_id": ref.node_id, "field": ref.field, "alias": ref.alias}
                     for ref in node.inputs
                 ],
+                "input_schema": getattr(node, "input_schema", None),
+                "output_schema": getattr(node, "output_schema", None),
+                "persist_output": bool(getattr(node, "persist_output", False)),
             }
             for node in program.nodes
         ],
@@ -88,6 +92,13 @@ def plan_digest(program: Any) -> str:
                 "taint_sources": sorted(node.taint_sources),
                 "deterministic": bool(getattr(node, "deterministic", False)),
                 "cacheable": bool(getattr(node, "cacheable", False)),
+                "input_schema_digest": (
+                    digest_value(node.input_schema) if getattr(node, "input_schema", None) is not None else None
+                ),
+                "output_schema_digest": (
+                    digest_value(node.output_schema) if getattr(node, "output_schema", None) is not None else None
+                ),
+                "persist_output": bool(getattr(node, "persist_output", False)),
             }
             for node in program.topological_nodes()
         ],
@@ -126,6 +137,12 @@ def node_fingerprint(node: Any, input_value: Any) -> tuple[str, str]:
             "output_type": node.output_type,
             "claims": sorted(claim.token for claim in node.claims),
             "deterministic": bool(getattr(node, "deterministic", False)),
+            "input_schema_digest": (
+                digest_value(node.input_schema) if getattr(node, "input_schema", None) is not None else None
+            ),
+            "output_schema_digest": (
+                digest_value(node.output_schema) if getattr(node, "output_schema", None) is not None else None
+            ),
         },
         "input_digest": input_digest,
     }
@@ -251,7 +268,7 @@ class ExecutionManifest:
     def from_mapping(cls, payload: Mapping[str, Any]) -> "ExecutionManifest":
         if (
             payload.get("format") != MANIFEST_FORMAT
-            or payload.get("version") != MANIFEST_VERSION
+            or payload.get("version") not in _SUPPORTED_MANIFEST_VERSIONS
         ):
             raise ManifestVerificationError("manifest 格式或版本不相容。")
         nodes = payload.get("nodes")
@@ -301,13 +318,18 @@ def verify_manifest(expected: ExecutionManifest, actual: ExecutionManifest) -> N
     if expected_ids != actual_ids:
         differences.append("node_order")
     for node_id in sorted(set(expected.nodes) & set(actual.nodes)):
-        for field in (
+        fields = [
             "fingerprint",
             "input_digest",
             "output_digest",
             "runtime",
             "taints",
-        ):
+        ]
+        if "artifact_digest" in expected.nodes[node_id]:
+            fields.append("artifact_digest")
+        if "schema_digest" in expected.nodes[node_id]:
+            fields.append("schema_digest")
+        for field in fields:
             if expected.nodes[node_id].get(field) != actual.nodes[node_id].get(field):
                 differences.append(f"nodes.{node_id}.{field}")
     if differences:
