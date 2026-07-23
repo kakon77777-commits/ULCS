@@ -11,6 +11,7 @@ from sos_mvp.engine import execute_program
 from sos_mvp.intent import (
     IntentCompileError,
     IntentRequest,
+    _powershell_literal,
     compile_intent,
 )
 from sos_mvp.parser import parse_text
@@ -107,10 +108,16 @@ class IntentCompilerTests(unittest.TestCase):
         self.assertIn("filesystem.read@./logs", bundle.validation["required_claims"])
 
     def test_powershell_bindings_use_non_interpolating_literals(self) -> None:
+        self.assertEqual(
+            _powershell_literal("./$([System.Environment]::CurrentDirectory)"),
+            "'./$([System.Environment]::CurrentDirectory)'",
+        )
+        self.assertEqual(_powershell_literal("./it's"), "'./it''s'")
+
         request = IntentRequest(
             intent="分析 log 檔。",
             bindings={
-                "source_path": "./$([System.Environment]::CurrentDirectory)",
+                "source_path": "./logs",
                 "pattern": "*.log$([System.Environment]::MachineName)",
                 "terms": ["ERROR"],
             },
@@ -119,15 +126,26 @@ class IntentCompilerTests(unittest.TestCase):
 
         self.assertTrue(bundle.ready)
         workflow = bundle.workflow or ""
-        self.assertIn(
-            "Get-ChildItem './$([System.Environment]::CurrentDirectory)'",
-            workflow,
-        )
+        self.assertIn("Get-ChildItem './logs'", workflow)
         self.assertIn(
             "-Filter '*.log$([System.Environment]::MachineName)'",
             workflow,
         )
-        self.assertNotIn('Get-ChildItem "./$(', workflow)
+        self.assertNotIn('-Filter "*.log$(', workflow)
+
+    def test_dynamic_resource_path_is_not_marked_ready(self) -> None:
+        request = IntentRequest(
+            intent="分析 log 檔。",
+            bindings={
+                "source_path": "./$([System.Environment]::CurrentDirectory)",
+                "pattern": "*.log",
+                "terms": ["ERROR"],
+            },
+        )
+        bundle = compile_intent(request)
+
+        self.assertFalse(bundle.ready)
+        self.assertIn(bundle.status, {"needs_clarification", "rejected"})
 
     def test_path_with_spaces_is_not_guessed_safe(self) -> None:
         request = IntentRequest(
