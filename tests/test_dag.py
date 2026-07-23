@@ -58,7 +58,7 @@ transform b = py{result = input} from a
         with self.assertRaises(GraphError):
             enrich_and_validate(program)
 
-    def test_ir_contains_edges_sinks_capabilities_layers_and_repeatability(self):
+    def test_ir_contains_edges_sinks_capabilities_layers_and_artifact_contract(self):
         program = enrich_and_validate(
             parse_text(
                 """
@@ -68,13 +68,16 @@ transform b = py{result = input + 1} from a
             )
         )
         ir = program.to_dict()
-        self.assertEqual(ir["version"], "0.5")
+        self.assertEqual(ir["version"], "0.6")
         self.assertEqual(ir["edges"][0]["from"], "a")
         self.assertEqual(ir["sinks"], ["b"])
         self.assertEqual(ir["nodes"][0]["capabilities"], ["python.execute"])
         self.assertEqual(ir["execution_layers"], [["a"], ["b"]])
         self.assertIn("deterministic", ir["nodes"][0])
         self.assertIn("cacheable", ir["nodes"][0])
+        self.assertIn("input_schema", ir["nodes"][0])
+        self.assertIn("output_schema", ir["nodes"][0])
+        self.assertIn("persist_output", ir["nodes"][0])
 
 
 if __name__ == "__main__":

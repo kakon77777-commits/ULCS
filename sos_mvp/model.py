@@ -36,6 +36,9 @@ class Node:
     taint_sources: list[str] = field(default_factory=list)
     deterministic: bool = False
     cacheable: bool = False
+    input_schema: dict[str, Any] | None = None
+    output_schema: dict[str, Any] | None = None
+    persist_output: bool = False
 
     @property
     def input_ref(self) -> InputRef | None:
@@ -69,6 +72,9 @@ class Node:
             "taint_sources": list(self.taint_sources),
             "deterministic": self.deterministic,
             "cacheable": self.cacheable,
+            "input_schema": self.input_schema,
+            "output_schema": self.output_schema,
+            "persist_output": self.persist_output,
         }
 
 
@@ -153,7 +159,7 @@ class Program:
         layers = self.execution_layers()
         return {
             "format": "ULCS-Language-Operator-Graph",
-            "version": "0.5",
+            "version": "0.6",
             "nodes": [node.to_dict() for node in self.nodes],
             "edges": edges,
             "execution_order": [node.node_id for layer in layers for node in layer],

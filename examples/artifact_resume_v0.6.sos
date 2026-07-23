@@ -1,0 +1,14 @@
+source text = py{
+result = "ERROR one\nINFO two\nERROR three"
+}
+
+extract errors = regex{
+ERROR.*
+} from text
+
+transform summary = py{
+result = {
+    "count": len(input),
+    "matches": [item["match"] for item in input],
+}
+} from errors
