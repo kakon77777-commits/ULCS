@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.8.0 — 2026-07-23
+
+### Added
+
+- `ULCS-Intent-Provider-Proposal` v0.8 與嚴格欄位白名單
+- `ULCS-Review-Bundle` v0.8、固定 reviewed file 集合、逐檔 SHA-256／size 與 canonical bundle digest
+- `ULCS-Approval-Record` v0.8
+- `approve`／`reject` 決策與 `execute` scope
+- HMAC-SHA256 完整性核准，key 僅從環境變數或 key file 載入
+- `ulcs-provider`、`ulcs-approve`、`ulcs-approved` CLI
+- Approved Runner 驗證後暫存快照執行
+- Provider Proposal、Review Bundle、Approval Gate 與安全邊界規格
+- Provider Proposal 範例
+- 跨平台 Provider → Review → Approval → Approved Runner 端到端 CI
+
+### Governance
+
+- Provider 不得提交 `workflow`、`policy`、`claims`、`status`、`ready`、`approval` 或 `signature`
+- 只有 deterministic Intent Compiler 與既有 validator 可產生 `ready`
+- Review Bundle 拒絕缺檔、檔名集合改變、符號連結、size／digest 改變與非 ready metadata
+- Approval 必須綁定同一 Review Bundle digest、HMAC、`approve` 決策與 `execute` scope
+- Approved Runner 禁止覆寫 policy、contract、capability 規則、plugin、cwd、db、resource limits、cache 與 resume
+- 核准檔案在執行前複製到暫存快照並重新驗證 size 與 SHA-256
+
+### Compatibility
+
+- `.sos` 語法與 Runtime Adapter API 未變更
+- `ULCS-Intent-Request`／`ULCS-Intent-Bundle` 維持 v0.7
+- LOG、Artifact、Manifest 與 Checkpoint 維持 v0.6
+- v0.1–v0.7 工作流與 CLI 保持相容
+- 既有 `ulcs` 可直接執行；`ulcs-approved` 是新增的受治理入口
+
+### Safety
+
+- HMAC 是共享密鑰完整性驗證，不是非對稱公鑰簽章或第三方不可否認證明
+- Provider ID／model 是來源描述，不是密碼學身分
+- Review digest 不自動包含未來的外部日誌、資料庫、HTTP 回應或其他 runtime input
+- `ulcs-approved` 不是 OS 全域強制閘門；部署時仍須限制 Agent 直接存取 `ulcs`、Python 模組與底層執行器
+- key distribution、rotation、revocation、檔案權限與秘密管理由部署環境負責
+
 ## 0.7.0 — 2026-07-23
 
 ### Added
