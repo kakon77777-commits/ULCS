@@ -17,6 +17,7 @@ jobs:
         python-version: ["3.11", "3.12", "3.13"]
     runs-on: ${{ matrix.os }}
     env:
+      PYTHONIOENCODING: utf-8
       ULCS_CI_APPROVAL_KEY: ci-approval-key-0123456789abcdef
     steps:
       - uses: actions/checkout@v4
