@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ulcs-polyglot-terminal"
-version = "0.6.0"
-description = "Reference runtime for Universal Language Composition Substrate"
+version = "0.7.0"
+description = "Reference runtime and review-first Intent Compiler for Universal Language Composition Substrate"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{name = "Neo.K / EveMissLab"}]
@@ -19,6 +19,7 @@ classifiers = [
 [project.scripts]
 ulcs = "sos_mvp.cli:main"
 sos-mvp = "sos_mvp.cli:main"
+ulcs-intent = "sos_mvp.intent_cli:main"
 
 [tool.setuptools]
 packages = ["sos_mvp"]

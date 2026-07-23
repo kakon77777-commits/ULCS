@@ -1,0 +1,14 @@
+{
+  "format": "ULCS-Intent-Request",
+  "version": "0.7",
+  "intent": "分析以下日誌，找出 ERROR 與 FATAL，統計各類數量並保留匹配明細。",
+  "profile": "log-analysis",
+  "bindings": {
+    "text": "ERROR first failure\nINFO startup complete\nFATAL database unavailable\nERROR retry failed",
+    "terms": ["ERROR", "FATAL"]
+  },
+  "preferences": {
+    "include_matches": true,
+    "persist_summary": true
+  }
+}
