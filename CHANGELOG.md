@@ -33,6 +33,8 @@
 - capability policy 預設 enforce 並使用 exact inferred claims
 - v0.7 不自動生成 POST、PUT、PATCH、DELETE、秘密注入或遠端修改
 - 含空白的可攜式 PowerShell 路徑不被假裝為跨平台安全
+- PowerShell path 與 filter 使用不插值的單引號 literal；內含單引號倍寫，NUL／換行直接拒絕
+- 動態資源 path 不得標記為 `ready`，即使語言字串本身已安全引用
 - confidence 不是正確率或安全證明
 - Intent Request 與 Bundle 不應承載秘密
 
