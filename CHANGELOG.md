@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.7.0 — 2026-07-23
+
+### Added
+
+- `ULCS-Intent-Request` v0.7 與 `ULCS-Intent-Bundle` v0.7
+- review-first deterministic Intent Compiler
+- `ready`／`needs_clarification`／`rejected` 三態
+- `ulcs-intent` CLI 與 `--list-profiles`
+- `log-analysis` profile：內嵌文字／本地檔案、明確 terms、regex 抽取與分類統計
+- `http-json-fetch` profile：受限 GET／HEAD 與 origin-scoped network claim
+- 自動生成 `workflow.sos`、Artifact Contract、enforce capability policy、Intent Plan 與 bundle metadata
+- 候選產物回送既有 parser、graph、contract、policy validator
+- confidence、assumptions、missing fields、risks、steps 與 validation report
+- 原子 bundle 寫入
+- v0.7 Intent Request 範例與 Intent Compiler 規格
+- 跨平台生成後再執行的端到端 CI
+
+### Compatibility
+
+- `.sos` 語法未變更
+- Runtime Adapter API 未變更
+- LOG、Artifact、Manifest 與 Checkpoint 格式維持 v0.6
+- v0.1–v0.6 工作流與 CLI 保持相容
+- `ulcs` 與 `sos-mvp` 命令保留，新增獨立 `ulcs-intent`
+
+### Safety
+
+- Intent Compiler 不自動執行生成 bundle
+- 未辨識意圖不猜測為任意程式，改回 `needs_clarification`
+- 生成候選未通過既有 validator 時標記為 `rejected`
+- capability policy 預設 enforce 並使用 exact inferred claims
+- v0.7 不自動生成 POST、PUT、PATCH、DELETE、秘密注入或遠端修改
+- 含空白的可攜式 PowerShell 路徑不被假裝為跨平台安全
+- confidence 不是正確率或安全證明
+- Intent Request 與 Bundle 不應承載秘密
+
 ## 0.6.0 — 2026-07-23
 
 ### Added
