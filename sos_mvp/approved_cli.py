@@ -11,18 +11,28 @@ from .review import (
     ReviewBundle,
     ReviewError,
     load_key,
+    sha256_file,
     verify_approval,
 )
 
 _BLOCKED_RUNTIME_OPTIONS = (
     "--allow",
+    "--cache-dir",
+    "--cache-mode",
+    "--checkpoint",
     "--contract",
     "--cwd",
     "--db",
     "--deny",
     "--enforce-capabilities",
+    "--max-nodes",
+    "--max-output-bytes",
+    "--max-total-output-bytes",
+    "--max-workers",
     "--plugin",
     "--policy",
+    "--resume",
+    "--verify-manifest",
 )
 
 
@@ -41,6 +51,7 @@ def build_parser() -> argparse.ArgumentParser:
             "ULCS v0.8 Approved Runner：驗證 Review Bundle 與 Approval Record，"
             "從已驗證快照執行既有 ULCS runtime"
         ),
+        allow_abbrev=False,
     )
     parser.add_argument("review", help="review-bundle.json 或其所在目錄")
     parser.add_argument("approval", help="Approval Record JSON")
@@ -79,6 +90,9 @@ def main(argv: list[str] | None = None) -> int:
             if target.stat().st_size != metadata["size"]:
                 print(f"[Approved Runner 拒絕] 快照大小不一致：{name}", file=sys.stderr)
                 return 4
+            if sha256_file(target) != metadata["sha256"]:
+                print(f"[Approved Runner 拒絕] 快照摘要不一致：{name}", file=sys.stderr)
+                return 4
         delegated = [
             str(snapshot / "workflow.sos"),
             "--cwd",
@@ -94,9 +108,15 @@ def main(argv: list[str] | None = None) -> int:
 
 def _reject_runtime_overrides(arguments: list[str]) -> None:
     for token in arguments:
+        if not token.startswith("--"):
+            continue
         for blocked in _BLOCKED_RUNTIME_OPTIONS:
-            if token == blocked or token.startswith(blocked + "="):
-                raise ReviewError(f"Approved Runner 不允許覆寫治理參數：{blocked}")
+            if (
+                token == blocked
+                or token.startswith(blocked + "=")
+                or blocked.startswith(token)
+            ):
+                raise ReviewError(f"Approved Runner 不允許覆寫治理參數：{token}")
 
 
 if __name__ == "__main__":
