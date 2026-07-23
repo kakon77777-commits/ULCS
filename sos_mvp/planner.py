@@ -3,6 +3,7 @@ from __future__ import annotations
 from .executors import ExecutionError, get_adapter
 from .extensions import ensure_runtime_extensions
 from .model import GraphError, Program
+from .provenance import digest_value
 from .resource_analysis import analyze_claims, infer_taint_sources
 from .sqlite_runtime import install_closing_sqlite_adapter
 
@@ -67,6 +68,12 @@ def enrich_and_validate(program: Program) -> Program:
     return program
 
 
+def _schema_label(schema) -> str:
+    if schema is None:
+        return "none"
+    return digest_value(schema)[:12]
+
+
 def plan_lines(program: Program) -> list[str]:
     lines: list[str] = []
     layer_index = {
@@ -94,10 +101,15 @@ def plan_lines(program: Program) -> list[str]:
             if node.deterministic
             else "runtime-dependent"
         )
+        artifact = (
+            f"input-schema={_schema_label(node.input_schema)}, "
+            f"output-schema={_schema_label(node.output_schema)}, "
+            f"persist={node.persist_output}"
+        )
         lines.append(
             f"{index}. L{layer_index[node.node_id]} {node.node_id} [{node.language}] "
             f"{node.input_type} → {node.output_type}; 來源={source}; "
             f"Runtime={node.runtime}; 能力={effects}; 範圍={claims}; "
-            f"污染源={taints}; 重現性={repeatability}"
+            f"污染源={taints}; 重現性={repeatability}; Artifact={artifact}"
         )
     return lines
