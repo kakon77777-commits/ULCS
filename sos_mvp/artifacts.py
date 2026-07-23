@@ -214,12 +214,16 @@ class ArtifactRef:
         digest = str(payload.get("digest", ""))
         if len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest):
             raise ArtifactError("Artifact digest 非法。")
+        size = int(payload.get("size", -1))
+        path = str(payload.get("path", ""))
+        if size < 0 or not path:
+            raise ArtifactError("Artifact size 或 path 非法。")
         return cls(
             digest=digest,
             media_type=str(payload.get("media_type", "application/json")),
             encoding=str(payload.get("encoding", "utf-8")),
-            size=int(payload.get("size", -1)),
-            path=str(payload.get("path", "")),
+            size=size,
+            path=path,
             schema_digest=(
                 str(payload["schema_digest"]) if payload.get("schema_digest") is not None else None
             ),
@@ -232,6 +236,18 @@ class ArtifactStore:
 
     def _object_path(self, digest: str) -> Path:
         return self.config.directory / "objects" / digest[:2] / f"{digest}.json"
+
+    def _resolve_ref_path(self, ref: ArtifactRef) -> Path:
+        relative = Path(ref.path)
+        if relative.is_absolute() or ".." in relative.parts:
+            raise ArtifactError("Artifact path 必須位於 Artifact Store 內。")
+        root = self.config.directory.resolve()
+        resolved = (root / relative).resolve()
+        try:
+            resolved.relative_to(root)
+        except ValueError as exc:
+            raise ArtifactError("Artifact path 逃出 Artifact Store。") from exc
+        return resolved
 
     def should_persist(self, *, size: int, explicit: bool = False) -> bool:
         return self.config.persist_all or explicit or size >= self.config.threshold_bytes
@@ -251,6 +267,7 @@ class ArtifactStore:
             "media_type": "application/json",
             "encoding": "utf-8",
             "size": len(encoded),
+            "path": relative,
             "schema_digest": schema_digest,
             "value": json.loads(canonical),
         }
@@ -266,7 +283,7 @@ class ArtifactStore:
         )
 
     def load(self, ref: ArtifactRef, schema: Mapping[str, Any] | None = None) -> Any:
-        path = self.config.directory / ref.path
+        path = self._resolve_ref_path(ref)
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except FileNotFoundError as exc:
@@ -276,7 +293,7 @@ class ArtifactStore:
         if not isinstance(payload, Mapping):
             raise ArtifactError("Artifact 根節點必須是 object。")
         stored = ArtifactRef.from_mapping(payload)
-        if stored.digest != ref.digest or stored.path != ref.path:
+        if stored != ref:
             raise ArtifactError("Artifact Reference 與儲存內容不一致。")
         value = payload.get("value")
         encoded = canonical_json(value).encode("utf-8")
