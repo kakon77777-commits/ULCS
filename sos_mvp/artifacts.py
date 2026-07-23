@@ -234,8 +234,14 @@ class ArtifactStore:
     def __init__(self, config: ArtifactConfig) -> None:
         self.config = config
 
-    def _object_path(self, digest: str) -> Path:
-        return self.config.directory / "objects" / digest[:2] / f"{digest}.json"
+    def _object_path(self, digest: str, schema_digest: str | None) -> Path:
+        contract_key = schema_digest or "no-schema"
+        return (
+            self.config.directory
+            / "objects"
+            / digest[:2]
+            / f"{digest}.{contract_key}.json"
+        )
 
     def _resolve_ref_path(self, ref: ArtifactRef) -> Path:
         relative = Path(ref.path)
@@ -257,23 +263,10 @@ class ArtifactStore:
         canonical = canonical_json(value)
         encoded = canonical.encode("utf-8")
         digest = hashlib.sha256(encoded).hexdigest()
-        path = self._object_path(digest)
-        relative = path.relative_to(self.config.directory).as_posix()
         schema_digest = digest_value(schema) if schema is not None else None
-        payload = {
-            "format": ARTIFACT_FORMAT,
-            "version": ARTIFACT_VERSION,
-            "digest": digest,
-            "media_type": "application/json",
-            "encoding": "utf-8",
-            "size": len(encoded),
-            "path": relative,
-            "schema_digest": schema_digest,
-            "value": json.loads(canonical),
-        }
-        if not path.exists():
-            _atomic_write_json(path, payload)
-        return ArtifactRef(
+        path = self._object_path(digest, schema_digest)
+        relative = path.relative_to(self.config.directory).as_posix()
+        ref = ArtifactRef(
             digest=digest,
             media_type="application/json",
             encoding="utf-8",
@@ -281,6 +274,15 @@ class ArtifactStore:
             path=relative,
             schema_digest=schema_digest,
         )
+        payload = {**ref.to_dict(), "value": json.loads(canonical)}
+        if path.exists():
+            try:
+                self.load(ref, schema)
+                return ref
+            except ArtifactError:
+                pass
+        _atomic_write_json(path, payload)
+        return ref
 
     def load(self, ref: ArtifactRef, schema: Mapping[str, Any] | None = None) -> Any:
         path = self._resolve_ref_path(ref)
