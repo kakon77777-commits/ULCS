@@ -187,14 +187,6 @@ def execute_program_with_trace(
         worker_count = min(effective_limits.max_workers, len(layer))
         futures: dict[str, Future[_NodeRunResult]] = {}
 
-        def persist_if_needed(node: Node, value: Any) -> ArtifactRef | None:
-            if artifact_store is None:
-                return None
-            size = _encoded_size(value)
-            if not artifact_store.should_persist(size=size, explicit=node.persist_output):
-                return None
-            return artifact_store.store(value, node.output_schema)
-
         def run(node: Node) -> _NodeRunResult:
             input_value = resolve_input(node, outputs)
             try:
@@ -240,7 +232,6 @@ def execute_program_with_trace(
                         input_digest=input_digest,
                         output_digest=entry.output_digest,
                         cache_hit=True,
-                        artifact=persist_if_needed(node, entry.value),
                     )
 
             if _requires_serial_effects(node):
@@ -266,7 +257,6 @@ def execute_program_with_trace(
                 input_digest=input_digest,
                 output_digest=output_digest,
                 cache_hit=False,
-                artifact=persist_if_needed(node, value),
             )
 
         with ThreadPoolExecutor(
@@ -300,6 +290,14 @@ def execute_program_with_trace(
                         f"超過總上限 {effective_limits.max_total_output_bytes}。"
                     )
 
+                artifact = result.artifact
+                if (
+                    artifact is None
+                    and artifact_store is not None
+                    and artifact_store.should_persist(size=size, explicit=node.persist_output)
+                ):
+                    artifact = artifact_store.store(result.value, node.output_schema)
+
                 inherited = {
                     label
                     for dependency in node.dependencies
@@ -318,7 +316,7 @@ def execute_program_with_trace(
                 output_digests[node.node_id] = result.output_digest
                 cache_hits[node.node_id] = result.cache_hit
                 resumed[node.node_id] = result.resumed
-                artifacts[node.node_id] = result.artifact
+                artifacts[node.node_id] = artifact
                 total_output_bytes += size
 
                 if on_complete is not None:
@@ -333,7 +331,7 @@ def execute_program_with_trace(
                             resumed=result.resumed,
                             fingerprint=result.fingerprint,
                             output_digest=result.output_digest,
-                            artifact=result.artifact,
+                            artifact=artifact,
                         )
                     )
 
