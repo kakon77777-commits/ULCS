@@ -17,8 +17,8 @@ from sos_mvp.review import (
     compile_provider_proposal,
 )
 from sos_mvp.transparency_v09 import TransparencyCheckpoint, TransparencyLog
-from sos_mvp.trusted_cli import main as trusted_main
-from sos_mvp.v09_crypto import generate_keypair
+from sos_mvp.trusted_cli import _verify_log_governance, main as trusted_main
+from sos_mvp.v09_crypto import generate_keypair, load_private_key
 
 
 def _proposal_payload() -> dict[str, object]:
@@ -44,11 +44,11 @@ def _proposal_payload() -> dict[str, object]:
     }
 
 
-def _write_contract(root: Path) -> Path:
+def _write_contract(root: Path, *, text: str | None = None) -> Path:
     source_dir = root / "source"
-    source_dir.mkdir(parents=True)
+    source_dir.mkdir(parents=True, exist_ok=True)
     (source_dir / "sample.log").write_text(
-        "ERROR one\nINFO two\nFATAL three\nERROR four\n",
+        text or "ERROR one\nINFO two\nFATAL three\nERROR four\n",
         encoding="utf-8",
     )
     contract_path = root / "input-contract-source.json"
@@ -82,6 +82,32 @@ def _build_review(root: Path) -> tuple[ProviderProposal, ReviewBundle]:
     return proposal, review
 
 
+def _build_signed_stack(root: Path) -> tuple[
+    ProviderProposal,
+    ReviewBundle,
+    InputBundle,
+    ProviderAttestation,
+    SignedApproval,
+    Ed25519PrivateKey,
+    Ed25519PrivateKey,
+]:
+    proposal, review = _build_review(root / "review")
+    inputs = InputContract.read(_write_contract(root)).capture(root / "input")
+    provider_key = Ed25519PrivateKey.generate()
+    approver_key = Ed25519PrivateKey.generate()
+    attestation = ProviderAttestation.create(proposal, provider_key)
+    approval = SignedApproval.create(
+        review,
+        inputs,
+        attestation,
+        approver_key,
+        decision="approve",
+        approver="reviewer-v09",
+        scopes=("execute",),
+    )
+    return proposal, review, inputs, attestation, approval, provider_key, approver_key
+
+
 class InputContractTests(unittest.TestCase):
     def test_capture_and_verify_content_addressed_input(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -90,7 +116,8 @@ class InputContractTests(unittest.TestCase):
             bundle = contract.capture(root / "bundle")
             loaded = InputBundle.read(root / "bundle")
             self.assertEqual(loaded.digest, bundle.digest)
-            self.assertEqual((root / "bundle/inputs/sample.log").read_text(encoding="utf-8").count("ERROR"), 2)
+            text = (root / "bundle/inputs/sample.log").read_text(encoding="utf-8")
+            self.assertEqual(text.count("ERROR"), 2)
 
     def test_changed_input_invalidates_bundle(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -139,27 +166,33 @@ class SignatureTests(unittest.TestCase):
         with self.assertRaises(ReviewError):
             attestation.verify(proposal, wrong_key.public_key())
 
-    def test_signed_approval_binds_review_input_and_provider(self) -> None:
+    def test_signed_approval_binds_exact_input_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            proposal, review = _build_review(root / "review")
-            inputs = InputContract.read(_write_contract(root)).capture(root / "input")
-            provider_key = Ed25519PrivateKey.generate()
-            approver_key = Ed25519PrivateKey.generate()
-            attestation = ProviderAttestation.create(proposal, provider_key)
-            approval = SignedApproval.create(
+            (
+                _proposal,
                 review,
                 inputs,
                 attestation,
+                approval,
+                _provider_key,
                 approver_key,
-                decision="approve",
-                approver="reviewer-v09",
-                scopes=("execute",),
-            )
+            ) = _build_signed_stack(root)
             approval.verify(review, inputs, attestation, approver_key.public_key())
-            changed = InputContract.read(_write_contract(root / "other")).capture(root / "other-input")
+
+            changed_contract = _write_contract(
+                root / "other",
+                text="ERROR replacement\nFATAL replacement\n",
+            )
+            changed_inputs = InputContract.read(changed_contract).capture(root / "other-input")
+            self.assertNotEqual(changed_inputs.digest, inputs.digest)
             with self.assertRaises(ReviewError):
-                approval.verify(review, changed, attestation, approver_key.public_key())
+                approval.verify(
+                    review,
+                    changed_inputs,
+                    attestation,
+                    approver_key.public_key(),
+                )
 
     def test_reject_signature_never_authorizes_execution(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -183,10 +216,10 @@ class SignatureTests(unittest.TestCase):
 
 
 class TransparencyTests(unittest.TestCase):
-    def test_hash_chain_and_checkpoint(self) -> None:
+    def test_hash_chain_checkpoint_and_tamper_detection(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            log = TransparencyLog.read(root / "log.json", create=True)
+            path = Path(tmp) / "log.json"
+            log = TransparencyLog.read(path, create=True)
             log = log.append(event="provider-attested", subject="a" * 64)
             log = log.append(event="approval-issued", subject="b" * 64)
             key = Ed25519PrivateKey.generate()
@@ -194,29 +227,36 @@ class TransparencyTests(unittest.TestCase):
             checkpoint.verify(log, key.public_key())
             self.assertEqual(checkpoint.entry_count, 2)
 
-    def test_modified_chain_is_rejected(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "log.json"
-            TransparencyLog.read(path, create=True).append(
-                event="provider-attested",
-                subject="a" * 64,
-            )
             payload = json.loads(path.read_text(encoding="utf-8"))
             payload["entries"][0]["subject"] = "tampered"
             path.write_text(json.dumps(payload), encoding="utf-8")
             with self.assertRaises(ReviewError):
                 TransparencyLog.read(path)
 
-    def test_revoked_key_is_recorded(self) -> None:
+    def test_revoked_approver_key_blocks_governance(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "log.json"
-            key_id = "sha256:" + "c" * 64
-            log = TransparencyLog.read(path, create=True).append(
+            root = Path(tmp)
+            (
+                _proposal,
+                _review,
+                _inputs,
+                attestation,
+                approval,
+                _provider_key,
+                _approver_key,
+            ) = _build_signed_stack(root)
+            log = TransparencyLog.read(root / "log.json", create=True)
+            log = log.append(event="provider-attested", subject=attestation.digest)
+            log = log.append(event="approval-issued", subject=approval.digest)
+            log = log.append(
                 event="key-revoked",
-                subject=key_id,
-                metadata={"reason": "test"},
+                subject=approval.key_id,
+                metadata={"reason": "compromised"},
             )
-            self.assertTrue(log.key_revoked(key_id))
+            checkpoint_key = Ed25519PrivateKey.generate()
+            checkpoint = TransparencyCheckpoint.create(log, checkpoint_key, signer="operator")
+            with self.assertRaises(ReviewError):
+                _verify_log_governance(log, checkpoint, attestation, approval)
 
 
 class TrustedRunnerTests(unittest.TestCase):
@@ -236,9 +276,10 @@ class TrustedRunnerTests(unittest.TestCase):
             generate_keypair(approver_private, approver_public)
             generate_keypair(checkpoint_private, checkpoint_public)
 
-            from sos_mvp.v09_crypto import load_private_key
-
-            attestation = ProviderAttestation.create(proposal, load_private_key(provider_private))
+            attestation = ProviderAttestation.create(
+                proposal,
+                load_private_key(provider_private),
+            )
             attestation_path = root / "provider-attestation.json"
             attestation.write(attestation_path)
             approval = SignedApproval.create(
@@ -267,8 +308,12 @@ class TrustedRunnerTests(unittest.TestCase):
 
             def inspect_runtime(arguments: list[str]) -> int:
                 snapshot = Path(arguments[arguments.index("--cwd") + 1])
-                inspected["input"] = (snapshot / "inputs/sample.log").read_text(encoding="utf-8")
-                inspected["workflow"] = (snapshot / "workflow.sos").read_text(encoding="utf-8")
+                inspected["input"] = (snapshot / "inputs/sample.log").read_text(
+                    encoding="utf-8"
+                )
+                inspected["workflow"] = (snapshot / "workflow.sos").read_text(
+                    encoding="utf-8"
+                )
                 inspected["args"] = arguments
                 return 0
 
@@ -298,31 +343,6 @@ class TrustedRunnerTests(unittest.TestCase):
             self.assertIn("ERROR four", str(inspected["input"]))
             self.assertIn("Get-ChildItem './inputs'", str(inspected["workflow"]))
             self.assertIn("--policy", inspected["args"])
-
-    def test_trusted_runner_rejects_revoked_approver_key(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            proposal, review = _build_review(root / "review")
-            inputs = InputContract.read(_write_contract(root)).capture(root / "input")
-            provider_key = Ed25519PrivateKey.generate()
-            approver_key = Ed25519PrivateKey.generate()
-            checkpoint_key = Ed25519PrivateKey.generate()
-            attestation = ProviderAttestation.create(proposal, provider_key)
-            approval = SignedApproval.create(
-                review,
-                inputs,
-                attestation,
-                approver_key,
-                decision="approve",
-                approver="reviewer-v09",
-            )
-            log = TransparencyLog.read(root / "log.json", create=True)
-            log = log.append(event="provider-attested", subject=attestation.digest)
-            log = log.append(event="approval-issued", subject=approval.digest)
-            log = log.append(event="key-revoked", subject=approval.key_id, metadata={"reason": "compromised"})
-            self.assertTrue(log.key_revoked(approval.key_id))
-            checkpoint = TransparencyCheckpoint.create(log, checkpoint_key, signer="operator")
-            checkpoint.verify(log, checkpoint_key.public_key())
 
 
 if __name__ == "__main__":
