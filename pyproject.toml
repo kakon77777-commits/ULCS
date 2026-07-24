@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ulcs-polyglot-terminal"
-version = "0.9.0"
-description = "Reference runtime, Intent Compiler, input contracts, attestations, and approval gates for ULCS"
+version = "1.0.0"
+description = "Reference runtime, intent compiler, trust registry, threshold approvals, witnesses, and governed release bundles for ULCS"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = ["cryptography>=42"]
@@ -28,6 +28,8 @@ ulcs-input = "sos_mvp.input_cli:main"
 ulcs-sign = "sos_mvp.signing_cli:main"
 ulcs-log = "sos_mvp.transparency_cli:main"
 ulcs-trusted = "sos_mvp.trusted_cli:main"
+ulcs-govern = "sos_mvp.governance_cli:main"
+ulcs-release = "sos_mvp.release_cli:main"
 
 [tool.setuptools]
 packages = ["sos_mvp"]
