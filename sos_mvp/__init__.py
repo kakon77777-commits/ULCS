@@ -1,3 +1,3 @@
-"""Universal Language Composition Substrate reference runtime and Intent Compiler."""
+"""Universal Language Composition Substrate reference runtime and governance toolchain."""
 
-__version__ = "0.7.0"
+__version__ = "0.9.0"
