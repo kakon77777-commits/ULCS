@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Iterator, Mapping
 
 from .attestations_v09 import ProviderAttestation
-from .governance_v10 import ApprovalSet, TrustRegistry
+from .governance_v10 import ApprovalSet, TrustRegistry, WitnessSet
 from .inputs_v09 import InputBundle
 from .release_v10 import GovernedReleaseBundle
 from .review import ReviewBundle, ReviewError
@@ -59,14 +59,21 @@ def build_parser() -> argparse.ArgumentParser:
     execute = sub.add_parser("execute", help="驗證後透過既有 Trusted Runner 執行", allow_abbrev=False)
     execute.add_argument("bundle")
     execute.add_argument("--root-public-key", required=True)
-    execute.add_argument("runtime_args", nargs=argparse.REMAINDER)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     _configure_stdio()
-    args = build_parser().parse_args(argv)
+    raw_arguments = list(argv if argv is not None else sys.argv[1:])
+    runtime_args: list[str] = []
+    if "--" in raw_arguments:
+        separator = raw_arguments.index("--")
+        runtime_args = raw_arguments[separator + 1 :]
+        raw_arguments = raw_arguments[:separator]
+    args = build_parser().parse_args(raw_arguments)
     try:
+        if runtime_args and args.command != "execute":
+            raise ReviewError("只有 ulcs-release execute 可使用 -- 傳遞 Runtime 參數。")
         root_public = load_public_key(args.root_public_key)
         if args.command == "build":
             bundle = GovernedReleaseBundle.build(
@@ -79,7 +86,7 @@ def main(argv: list[str] | None = None) -> int:
                 approval_set=ApprovalSet.read(args.approval_set),
                 log=TransparencyLog.read(args.transparency_log),
                 checkpoint=TransparencyCheckpoint.read(args.checkpoint),
-                witness_set=__import__("sos_mvp.governance_v10", fromlist=["WitnessSet"]).WitnessSet.read(args.witness_set),
+                witness_set=WitnessSet.read(args.witness_set),
                 release_signer=args.signer,
                 release_private_key=load_private_key(args.private_key),
                 created_at=args.created_at,
@@ -111,9 +118,6 @@ def main(argv: list[str] | None = None) -> int:
                 args.json,
             )
             return 0
-        runtime_args = list(args.runtime_args)
-        if runtime_args[:1] == ["--"]:
-            runtime_args = runtime_args[1:]
         return _execute(bundle, runtime_args)
     except (OSError, ReviewError, TypeError, ValueError) as exc:
         print(f"[ULCS Release 拒絕] {exc}", file=sys.stderr)
