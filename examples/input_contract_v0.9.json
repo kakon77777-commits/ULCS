@@ -1,0 +1,17 @@
+{
+  "format": "ULCS-Input-Contract",
+  "version": "0.9",
+  "limits": {
+    "max_file_bytes": 1048576,
+    "max_total_bytes": 2097152
+  },
+  "entries": [
+    {
+      "name": "analysis-log",
+      "kind": "file",
+      "source": "input_data_v0.9/sample.log",
+      "mount": "inputs/sample.log",
+      "media_type": "text/plain; charset=utf-8"
+    }
+  ]
+}

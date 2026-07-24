@@ -1,0 +1,28 @@
+{
+  "format": "ULCS-Intent-Provider-Proposal",
+  "version": "0.8",
+  "provider": {
+    "id": "example-provider-v09",
+    "model": "review-only-fixture-v09"
+  },
+  "request": {
+    "format": "ULCS-Intent-Request",
+    "version": "0.7",
+    "intent": "分析受 Input Contract 管理的日誌，找出 ERROR 與 FATAL，統計各類數量。",
+    "profile": "log-analysis",
+    "bindings": {
+      "source_path": "./inputs",
+      "pattern": "*.log",
+      "terms": ["ERROR", "FATAL"],
+      "recursive": false
+    },
+    "preferences": {
+      "include_matches": true,
+      "persist_summary": true
+    }
+  },
+  "notes": [
+    "Provider 只提出意圖；輸入內容由獨立 Input Contract 與 Input Bundle 固定。"
+  ],
+  "confidence": 0.98
+}
