@@ -118,10 +118,51 @@ def main(argv: list[str] | None = None) -> int:
                 args.json,
             )
             return 0
-        return _execute(bundle, runtime_args)
+        with tempfile.TemporaryDirectory(prefix="ulcs-release-snapshot-") as snapshot_temp:
+            snapshot = _snapshot_verified_release(bundle, Path(snapshot_temp) / "release")
+            snapshot.verify(root_public)
+            if snapshot.digest != bundle.digest:
+                raise ReviewError("Release 執行快照 digest 與已驗證來源不一致。")
+            return _execute(snapshot, runtime_args)
     except (OSError, ReviewError, TypeError, ValueError) as exc:
         print(f"[ULCS Release 拒絕] {exc}", file=sys.stderr)
         return 4
+
+
+def _snapshot_verified_release(
+    bundle: GovernedReleaseBundle,
+    target: Path,
+) -> GovernedReleaseBundle:
+    target.mkdir(parents=True, exist_ok=False)
+    for name in sorted(bundle.manifest.files):
+        source = bundle.root / name
+        _reject_symlink_chain(bundle.root, source)
+        if not source.is_file():
+            raise ReviewError(f"Release snapshot source 遺失：{name}")
+        destination = target / name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(source.read_bytes())
+    manifest_path = target / "release-bundle.json"
+    manifest_path.write_text(
+        json.dumps(bundle.manifest.to_dict(), ensure_ascii=False, indent=2, allow_nan=False) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    return GovernedReleaseBundle.read(manifest_path)
+
+
+def _reject_symlink_chain(root: Path, path: Path) -> None:
+    root = root.resolve()
+    candidate = path
+    try:
+        relative = candidate.relative_to(root)
+    except ValueError as exc:
+        raise ReviewError("Release snapshot path 超出 bundle root。") from exc
+    current = root
+    for part in relative.parts:
+        current = current / part
+        if current.is_symlink():
+            raise ReviewError(f"Release snapshot 拒絕 symlink：{relative.as_posix()}")
 
 
 def _execute(bundle: GovernedReleaseBundle, runtime_args: list[str]) -> int:
