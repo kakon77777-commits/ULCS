@@ -1,0 +1,69 @@
+name: Governance v1.0
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  governed-release:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11", "3.12", "3.13"]
+    runs-on: ${{ matrix.os }}
+    env:
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install ULCS v1.0
+        run: python -m pip install -e .
+      - name: Prepare v1.0 workspace
+        run: python -c "from pathlib import Path; Path('output/v1.0').mkdir(parents=True, exist_ok=True)"
+      - name: Compile review and capture exact inputs
+        run: |
+          python -m sos_mvp.provider_cli examples/provider_proposal_v0.9.json --output-dir output/v1.0/review --json > output/v1.0/provider-compile.json
+          python -m sos_mvp.input_cli capture examples/input_contract_v0.9.json --output-dir output/v1.0/input --json > output/v1.0/input-capture.json
+      - name: Generate root and operational Ed25519 identities
+        run: |
+          python -m sos_mvp.signing_cli keygen --private-key output/v1.0/keys/root-private.pem --public-key output/v1.0/keys/root-public.pem --json
+          python -m sos_mvp.signing_cli keygen --private-key output/v1.0/keys/provider-private.pem --public-key output/v1.0/keys/provider-public.pem --json
+          python -m sos_mvp.signing_cli keygen --private-key output/v1.0/keys/approver-a-private.pem --public-key output/v1.0/keys/approver-a-public.pem --json
+          python -m sos_mvp.signing_cli keygen --private-key output/v1.0/keys/approver-b-private.pem --public-key output/v1.0/keys/approver-b-public.pem --json
+          python -m sos_mvp.signing_cli keygen --private-key output/v1.0/keys/checkpoint-private.pem --public-key output/v1.0/keys/checkpoint-public.pem --json
+          python -m sos_mvp.signing_cli keygen --private-key output/v1.0/keys/witness-private.pem --public-key output/v1.0/keys/witness-public.pem --json
+          python -m sos_mvp.signing_cli keygen --private-key output/v1.0/keys/release-private.pem --public-key output/v1.0/keys/release-public.pem --json
+      - name: Create Provider Attestation and two independent approvals
+        run: |
+          python -m sos_mvp.signing_cli provider output/v1.0/review/provider-proposal.json --private-key output/v1.0/keys/provider-private.pem --output output/v1.0/provider-attestation.json --log output/v1.0/transparency-log.json --json
+          python -m sos_mvp.signing_cli approve output/v1.0/review/review-bundle.json output/v1.0/input/input-bundle.json output/v1.0/provider-attestation.json --provider-public-key output/v1.0/keys/provider-public.pem --private-key output/v1.0/keys/approver-a-private.pem --approver ci-reviewer-a --reason "Independent approval A" --output output/v1.0/approval-a.json --log output/v1.0/transparency-log.json --json
+          python -m sos_mvp.signing_cli approve output/v1.0/review/review-bundle.json output/v1.0/input/input-bundle.json output/v1.0/provider-attestation.json --provider-public-key output/v1.0/keys/provider-public.pem --private-key output/v1.0/keys/approver-b-private.pem --approver ci-reviewer-b --reason "Independent approval B" --output output/v1.0/approval-b.json --log output/v1.0/transparency-log.json --json
+      - name: Create and verify Root-signed Trust Registry
+        run: |
+          python -m sos_mvp.governance_cli registry --registry-id ci-registry-v10 --root-private-key output/v1.0/keys/root-private.pem --provider-key example-provider-v09=output/v1.0/keys/provider-public.pem --approver-key ci-reviewer-a=output/v1.0/keys/approver-a-public.pem --approver-key ci-reviewer-b=output/v1.0/keys/approver-b-public.pem --checkpoint-key ci-checkpoint-operator=output/v1.0/keys/checkpoint-public.pem --witness-key ci-witness-a=output/v1.0/keys/witness-public.pem --release-key ci-release-operator=output/v1.0/keys/release-public.pem --approval-threshold 2 --witness-threshold 1 --output output/v1.0/trust-registry.json --json
+          python -m sos_mvp.governance_cli verify-registry output/v1.0/trust-registry.json --root-public-key output/v1.0/keys/root-public.pem --json
+      - name: Aggregate the 2-of-2 Approval Set
+        run: python -m sos_mvp.governance_cli approvals output/v1.0/review/review-bundle.json output/v1.0/input/input-bundle.json output/v1.0/provider-attestation.json --approval output/v1.0/approval-a.json --approval output/v1.0/approval-b.json --registry output/v1.0/trust-registry.json --root-public-key output/v1.0/keys/root-public.pem --transparency-log output/v1.0/transparency-log.json --output output/v1.0/approval-set.json --json
+      - name: Checkpoint the complete approval log
+        run: |
+          python -m sos_mvp.transparency_cli checkpoint output/v1.0/transparency-log.json --signer ci-checkpoint-operator --private-key output/v1.0/keys/checkpoint-private.pem --output output/v1.0/transparency-checkpoint.json --json
+          python -m sos_mvp.transparency_cli verify-checkpoint output/v1.0/transparency-log.json output/v1.0/transparency-checkpoint.json --public-key output/v1.0/keys/checkpoint-public.pem --json
+      - name: Create independent Witness Statement and Witness Set
+        run: |
+          python -m sos_mvp.governance_cli witness output/v1.0/transparency-checkpoint.json --private-key output/v1.0/keys/witness-private.pem --witness ci-witness-a --output output/v1.0/witness-a.json --json
+          python -m sos_mvp.governance_cli witnesses output/v1.0/transparency-checkpoint.json --witness output/v1.0/witness-a.json --registry output/v1.0/trust-registry.json --root-public-key output/v1.0/keys/root-public.pem --transparency-log output/v1.0/transparency-log.json --output output/v1.0/witness-set.json --json
+      - name: Build and verify Governed Release Bundle
+        run: |
+          python -m sos_mvp.release_cli build output/v1.0/review/review-bundle.json output/v1.0/input/input-bundle.json output/v1.0/provider-attestation.json output/v1.0/approval-set.json output/v1.0/transparency-log.json output/v1.0/transparency-checkpoint.json output/v1.0/witness-set.json output/v1.0/trust-registry.json --root-public-key output/v1.0/keys/root-public.pem --private-key output/v1.0/keys/release-private.pem --signer ci-release-operator --output-dir output/v1.0/release --json
+          python -m sos_mvp.release_cli verify output/v1.0/release --root-public-key output/v1.0/keys/root-public.pem --json
+      - name: Execute only from the verified release bundle
+        run: python -m sos_mvp.release_cli execute output/v1.0/release --root-public-key output/v1.0/keys/root-public.pem -- --artifact-mode all --artifact-dir output/v1.0/execution-artifacts --yes --json --emit-trace output/v1.0/trace.json
+      - name: Verify v1.0 governance and execution results
+        run: python -c "import json; from pathlib import Path; registry=json.loads(Path('output/v1.0/trust-registry.json').read_text(encoding='utf-8')); approvals=json.loads(Path('output/v1.0/approval-set.json').read_text(encoding='utf-8')); log=json.loads(Path('output/v1.0/transparency-log.json').read_text(encoding='utf-8')); checkpoint=json.loads(Path('output/v1.0/transparency-checkpoint.json').read_text(encoding='utf-8')); witnesses=json.loads(Path('output/v1.0/witness-set.json').read_text(encoding='utf-8')); release=json.loads(Path('output/v1.0/release/release-bundle.json').read_text(encoding='utf-8')); trace=json.loads(Path('output/v1.0/trace.json').read_text(encoding='utf-8')); assert registry['format']=='ULCS-Trust-Registry' and registry['version']=='1.0'; assert registry['policy']['approval_threshold']==2 and registry['policy']['witness_threshold']==1; assert approvals['format']=='ULCS-Threshold-Approval-Set' and approvals['threshold']==2 and len(approvals['approvals'])==2; assert len(log['entries'])==3; assert checkpoint['entry_count']==3 and checkpoint['log_head']==log['head_digest']; assert witnesses['format']=='ULCS-Witness-Set' and witnesses['threshold']==1 and len(witnesses['witnesses'])==1; assert release['format']=='ULCS-Governed-Release-Bundle' and release['version']=='1.0' and len(release['files'])>=10; assert trace['outputs']['summary']['total']==3; assert trace['outputs']['summary']['counts']=={'ERROR':2,'FATAL':1}"
